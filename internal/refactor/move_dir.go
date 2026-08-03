@@ -1,0 +1,125 @@
+package refactor
+
+import (
+	"fmt"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+// MoveDirOptions specifies arguments for moving a directory.
+type MoveDirOptions struct {
+	SourceDir string
+	DestDir   string
+}
+
+// MoveDirectory moves a directory and updates all import paths referencing it across the workspace.
+func MoveDirectory(opts MoveDirOptions) error {
+	absSource, err := filepath.Abs(opts.SourceDir)
+	if err != nil {
+		return fmt.Errorf("invalid source dir: %w", err)
+	}
+	absDest, err := filepath.Abs(opts.DestDir)
+	if err != nil {
+		return fmt.Errorf("invalid dest dir: %w", err)
+	}
+
+	if absSource == absDest {
+		return nil // Idempotent
+	}
+
+	info, err := os.Stat(absSource)
+	if err != nil || !info.IsDir() {
+		return fmt.Errorf("source directory %s does not exist or is not a directory", absSource)
+	}
+
+	moduleRoot, err := FindModuleRoot(absSource)
+	if err != nil {
+		moduleRoot = filepath.Dir(absSource)
+	}
+
+	modName, err := GetModuleName(moduleRoot)
+	if err != nil {
+		return fmt.Errorf("could not determine module name: %w", err)
+	}
+
+	relOld, err := filepath.Rel(moduleRoot, absSource)
+	if err != nil {
+		return fmt.Errorf("failed to get relative path for source dir: %w", err)
+	}
+	relNew, err := filepath.Rel(moduleRoot, absDest)
+	if err != nil {
+		return fmt.Errorf("failed to get relative path for dest dir: %w", err)
+	}
+
+	oldImportPath := filepath.ToSlash(filepath.Join(modName, relOld))
+	newImportPath := filepath.ToSlash(filepath.Join(modName, relNew))
+
+	// Move directory on disk
+	if err := os.MkdirAll(filepath.Dir(absDest), 0750); err != nil {
+		return fmt.Errorf("failed to create parent directory for dest: %w", err)
+	}
+
+	if err := os.Rename(absSource, absDest); err != nil {
+		return fmt.Errorf("failed to move directory from %s to %s: %w", absSource, absDest, err)
+	}
+
+	// Update package declarations inside moved directory files
+	newPkgName := determinePackageName(absDest)
+	err = filepath.Walk(absDest, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err
+		}
+		fset := token.NewFileSet()
+		astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if parseErr == nil && astFile.Name != nil {
+			if !strings.HasSuffix(astFile.Name.Name, "_test") {
+				astFile.Name.Name = newPkgName
+			} else {
+				astFile.Name.Name = newPkgName + "_test"
+			}
+			_ = writeASTToFile(fset, astFile, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("failed to update moved directory package declarations: %w", err)
+	}
+
+	// Walk workspace and update import specs across all .go files
+	err = filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
+			return err
+		}
+
+		fset := token.NewFileSet()
+		astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
+		if parseErr != nil {
+			return nil
+		}
+
+		modified := false
+		for _, imp := range astFile.Imports {
+			importPath, _ := strconv.Unquote(imp.Path.Value)
+			if importPath == oldImportPath || strings.HasPrefix(importPath, oldImportPath+"/") {
+				updatedPath := strings.Replace(importPath, oldImportPath, newImportPath, 1)
+				imp.Path.Value = strconv.Quote(updatedPath)
+				modified = true
+			}
+		}
+
+		if modified {
+			_ = writeASTToFile(fset, astFile, path)
+		}
+		return nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed updating module import paths: %w", err)
+	}
+
+	return nil
+}

@@ -1,0 +1,59 @@
+version: "2"
+
+run:
+  timeout: 5m
+  modules-download-mode: readonly
+
+linters:
+  enable:
+    - errcheck
+    - gocritic
+    - gosec
+    - gocyclo
+    - revive
+    - govet
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  gocritic:
+    enabled-checks:
+      - appendAssign
+      - argCaseCompare
+      - badCond
+      - caseOrder
+      - codegenComment
+      - commentFormatting
+      - emptyFallthrough
+      - emptyStringTest
+      - hexLiteral
+      - methodExprCall
+      - offBy1
+      - underef
+  govet:
+    enable:
+      - shadow
+    disable:
+      - fieldalignment
+  revive:
+    severity: warning
+    confidence: 0.8
+    rules:
+      - name: exported
+        severity: warning
+      - name: blank-imports
+      - name: context-as-argument
+      - name: error-naming
+      - name: error-strings
+      - name: error-return
+      - name: if-return
+      - name: increment-decrement
+      - name: var-naming
+
+issues:
+  exclude-rules:
+    - path: "tests/.*"
+      linters:
+        - gosec
+        - gocyclo
+        - errcheck

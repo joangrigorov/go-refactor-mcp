@@ -1,0 +1,11 @@
+# Binaries
+go-refactor-mcp
+*.exe
+*.exe.test
+*.test
+*.out
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
