@@ -36,7 +36,7 @@ archives:
 nfpms:
   - file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     homepage: https://github.com/joangrigorov/go-refactor-mcp
-    maintainer: Joan Grigorov
+    maintainer: TheBoringArchitect
     description: "Model Context Protocol (MCP) server for Go refactoring"
     license: MIT
     formats:
