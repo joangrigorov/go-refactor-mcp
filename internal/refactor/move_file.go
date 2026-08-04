@@ -636,7 +636,7 @@ func checkCyclicDependency(moduleRoot string, sourceFiles []string, absDestDir s
 
 	for impPath := range sourceImports {
 		if impPath == destPkgPath {
-			return fmt.Errorf("cyclic dependency detected: moving file to package %q creates an import cycle with %q", destPkgPath, impPath)
+			continue // Moving a file into a package it currently imports is valid; the import is removed upon joining.
 		}
 		if hasDependency(pkgs, impPath, destPkgPath) {
 			return fmt.Errorf("cyclic dependency detected: moving file to package %q creates a cyclic dependency chain with %q", destPkgPath, impPath)

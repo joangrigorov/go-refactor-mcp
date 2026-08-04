@@ -14,15 +14,28 @@ func TestCyclicDependencyPrevention(t *testing.T) {
 
 	_ = os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte("module example.com/cyclemod\n\ngo 1.22.0\n"), 0600)
 
-	// pkgA imports pkgB
+	// pkgC imports pkgB
+	pkgCDir := filepath.Join(tempDir, "pkgC")
+	_ = os.MkdirAll(pkgCDir, 0750)
+	codeC := `package pkgC
+
+import "example.com/cyclemod/pkgB"
+
+func CallBFromC() {
+	pkgB.DoB()
+}
+`
+	_ = os.WriteFile(filepath.Join(pkgCDir, "c.go"), []byte(codeC), 0600)
+
+	// pkgA imports pkgC
 	pkgADir := filepath.Join(tempDir, "pkgA")
 	_ = os.MkdirAll(pkgADir, 0750)
 	codeA := `package pkgA
 
-import "example.com/cyclemod/pkgB"
+import "example.com/cyclemod/pkgC"
 
-func CallB() {
-	pkgB.DoB()
+func CallC() {
+	pkgC.CallBFromC()
 }
 `
 	fileA := filepath.Join(pkgADir, "a.go")
@@ -38,7 +51,7 @@ func DoB() {}
 	fileB := filepath.Join(pkgBDir, "b.go")
 	_ = os.WriteFile(fileB, []byte(codeB), 0600)
 
-	// Moving a.go (which imports pkgB) into pkgB would make pkgB import pkgB or create a cycle
+	// Moving a.go (which imports pkgC) into pkgB would make pkgB import pkgC (which imports pkgB), creating a cycle
 	opts := refactor.MoveFileOptions{
 		SourceFile: fileA,
 		DestDir:    pkgBDir,

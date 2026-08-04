@@ -59,12 +59,37 @@ func MoveDirectory(opts MoveDirOptions) error {
 	newImportPath := filepath.ToSlash(filepath.Join(modName, relNew))
 
 	// Move directory on disk
-	if mkdirErr := os.MkdirAll(filepath.Dir(absDest), 0750); mkdirErr != nil {
-		return fmt.Errorf("failed to create parent directory for dest: %w", mkdirErr)
-	}
+	relDestFromSource, relErr := filepath.Rel(absSource, absDest)
+	isChild := relErr == nil && relDestFromSource != "." && relDestFromSource != ".." && !strings.HasPrefix(relDestFromSource, ".."+string(filepath.Separator))
 
-	if renameErr := os.Rename(absSource, absDest); renameErr != nil {
-		return fmt.Errorf("failed to move directory from %s to %s: %w", absSource, absDest, renameErr)
+	if isChild {
+		parentOfSource := filepath.Dir(absSource)
+		tmpDir, err := os.MkdirTemp(parentOfSource, ".move_dir_tmp_*")
+		if err != nil {
+			return fmt.Errorf("failed to create temporary directory: %w", err)
+		}
+		_ = os.Remove(tmpDir)
+		defer os.RemoveAll(tmpDir)
+
+		if renameErr := os.Rename(absSource, tmpDir); renameErr != nil {
+			return fmt.Errorf("failed to move directory to temp location %s: %w", tmpDir, renameErr)
+		}
+
+		if mkdirErr := os.MkdirAll(filepath.Dir(absDest), 0750); mkdirErr != nil {
+			return fmt.Errorf("failed to create parent directory for dest: %w", mkdirErr)
+		}
+
+		if renameErr := os.Rename(tmpDir, absDest); renameErr != nil {
+			return fmt.Errorf("failed to move directory from temp to %s: %w", absDest, renameErr)
+		}
+	} else {
+		if mkdirErr := os.MkdirAll(filepath.Dir(absDest), 0750); mkdirErr != nil {
+			return fmt.Errorf("failed to create parent directory for dest: %w", mkdirErr)
+		}
+
+		if renameErr := os.Rename(absSource, absDest); renameErr != nil {
+			return fmt.Errorf("failed to move directory from %s to %s: %w", absSource, absDest, renameErr)
+		}
 	}
 
 	// Update package declarations inside moved directory files according to their specific directory level
