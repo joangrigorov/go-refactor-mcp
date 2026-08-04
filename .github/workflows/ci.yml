@@ -69,12 +69,10 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: 'stable'
 
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v6
-        with:
-          version: v1.60.3
 
   test:
     name: Integration Tests (${{ matrix.os }})
