@@ -67,8 +67,7 @@ func MoveDirectory(opts MoveDirOptions) error {
 		return fmt.Errorf("failed to move directory from %s to %s: %w", absSource, absDest, err)
 	}
 
-	// Update package declarations inside moved directory files
-	newPkgName := determinePackageName(absDest)
+	// Update package declarations inside moved directory files according to their specific directory level
 	err = filepath.Walk(absDest, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
 			return err
@@ -76,12 +75,15 @@ func MoveDirectory(opts MoveDirOptions) error {
 		fset := token.NewFileSet()
 		astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if parseErr == nil && astFile.Name != nil {
-			if !strings.HasSuffix(astFile.Name.Name, "_test") {
-				astFile.Name.Name = newPkgName
-			} else {
-				astFile.Name.Name = newPkgName + "_test"
+			dirPkgName := cleanDirPackageName(filepath.Dir(path))
+			targetPkgName := dirPkgName
+			if strings.HasSuffix(astFile.Name.Name, "_test") {
+				targetPkgName = dirPkgName + "_test"
 			}
-			_ = writeASTToFile(fset, astFile, path)
+			if astFile.Name.Name != targetPkgName {
+				astFile.Name.Name = targetPkgName
+				_ = writeASTToFile(fset, astFile, path)
+			}
 		}
 		return nil
 	})
@@ -122,4 +124,14 @@ func MoveDirectory(opts MoveDirOptions) error {
 	}
 
 	return nil
+}
+
+func cleanDirPackageName(dirPath string) string {
+	base := filepath.Base(dirPath)
+	clean := strings.ReplaceAll(base, "-", "_")
+	clean = strings.ReplaceAll(clean, ".", "_")
+	if clean == "" || clean == "." {
+		return "main"
+	}
+	return clean
 }
