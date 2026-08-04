@@ -58,18 +58,31 @@ func MoveDirectory(opts MoveDirOptions) error {
 	oldImportPath := filepath.ToSlash(filepath.Join(modName, relOld))
 	newImportPath := filepath.ToSlash(filepath.Join(modName, relNew))
 
-	// Move directory on disk
+	if err := moveDirOnDisk(absSource, absDest); err != nil {
+		return err
+	}
+
+	if err := updateMovedPackageDeclarations(absDest); err != nil {
+		return err
+	}
+
+	return updateWorkspaceImports(moduleRoot, oldImportPath, newImportPath)
+}
+
+func moveDirOnDisk(absSource, absDest string) error {
 	relDestFromSource, relErr := filepath.Rel(absSource, absDest)
 	isChild := relErr == nil && relDestFromSource != "." && relDestFromSource != ".." && !strings.HasPrefix(relDestFromSource, ".."+string(filepath.Separator))
 
 	if isChild {
 		parentOfSource := filepath.Dir(absSource)
-		tmpDir, err := os.MkdirTemp(parentOfSource, ".move_dir_tmp_*")
-		if err != nil {
-			return fmt.Errorf("failed to create temporary directory: %w", err)
+		tmpDir, mkErr := os.MkdirTemp(parentOfSource, ".move_dir_tmp_*")
+		if mkErr != nil {
+			return fmt.Errorf("failed to create temporary directory: %w", mkErr)
 		}
 		_ = os.Remove(tmpDir)
-		defer os.RemoveAll(tmpDir)
+		defer func() {
+			_ = os.RemoveAll(tmpDir)
+		}()
 
 		if renameErr := os.Rename(absSource, tmpDir); renameErr != nil {
 			return fmt.Errorf("failed to move directory to temp location %s: %w", tmpDir, renameErr)
@@ -82,18 +95,21 @@ func MoveDirectory(opts MoveDirOptions) error {
 		if renameErr := os.Rename(tmpDir, absDest); renameErr != nil {
 			return fmt.Errorf("failed to move directory from temp to %s: %w", absDest, renameErr)
 		}
-	} else {
-		if mkdirErr := os.MkdirAll(filepath.Dir(absDest), 0750); mkdirErr != nil {
-			return fmt.Errorf("failed to create parent directory for dest: %w", mkdirErr)
-		}
-
-		if renameErr := os.Rename(absSource, absDest); renameErr != nil {
-			return fmt.Errorf("failed to move directory from %s to %s: %w", absSource, absDest, renameErr)
-		}
+		return nil
 	}
 
-	// Update package declarations inside moved directory files according to their specific directory level
-	err = filepath.Walk(absDest, func(path string, info os.FileInfo, walkErr error) error {
+	if mkdirErr := os.MkdirAll(filepath.Dir(absDest), 0750); mkdirErr != nil {
+		return fmt.Errorf("failed to create parent directory for dest: %w", mkdirErr)
+	}
+
+	if renameErr := os.Rename(absSource, absDest); renameErr != nil {
+		return fmt.Errorf("failed to move directory from %s to %s: %w", absSource, absDest, renameErr)
+	}
+	return nil
+}
+
+func updateMovedPackageDeclarations(absDest string) error {
+	err := filepath.Walk(absDest, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
 			return walkErr
 		}
@@ -115,9 +131,11 @@ func MoveDirectory(opts MoveDirOptions) error {
 	if err != nil {
 		return fmt.Errorf("failed to update moved directory package declarations: %w", err)
 	}
+	return nil
+}
 
-	// Walk workspace and update import specs across all .go files
-	err = filepath.Walk(moduleRoot, func(path string, info os.FileInfo, walkErr error) error {
+func updateWorkspaceImports(moduleRoot, oldImportPath, newImportPath string) error {
+	err := filepath.Walk(moduleRoot, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
 			return walkErr
 		}

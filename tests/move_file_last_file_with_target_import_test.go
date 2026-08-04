@@ -58,7 +58,7 @@ type OrderPort interface {
 	}
 
 	// Verify ports.go in sagas now imports example.com/seqmove/sagas/order_payment
-	portsBytes, readErr := os.ReadFile(filePorts)
+	portsBytes, readErr := os.ReadFile(filePorts) // #nosec G304
 	if readErr != nil {
 		t.Fatalf("failed reading ports.go: %v", readErr)
 	}
@@ -77,7 +77,7 @@ type OrderPort interface {
 
 	// Verify ports.go was successfully moved and updated to package order_payment
 	movedPortsPath := filepath.Join(destDir, "ports.go")
-	movedBytes, readErr := os.ReadFile(movedPortsPath)
+	movedBytes, readErr := os.ReadFile(movedPortsPath) // #nosec G304
 	if readErr != nil {
 		t.Fatalf("failed reading moved ports.go at %s: %v", movedPortsPath, readErr)
 	}

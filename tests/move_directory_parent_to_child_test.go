@@ -55,7 +55,7 @@ func main() {
 
 	// Verify moved file exists in destination
 	movedFilePath := filepath.Join(destDir, "saga.go")
-	contentBytes, readErr := os.ReadFile(movedFilePath)
+	contentBytes, readErr := os.ReadFile(movedFilePath) // #nosec G304
 	if readErr != nil {
 		t.Fatalf("failed to read moved file at %s: %v", movedFilePath, readErr)
 	}
@@ -65,7 +65,7 @@ func main() {
 	}
 
 	// Verify workspace import update in main.go
-	mainBytes, readErr := os.ReadFile(filepath.Join(mainDir, "main.go"))
+	mainBytes, readErr := os.ReadFile(filepath.Join(mainDir, "main.go")) // #nosec G304
 	if readErr != nil {
 		t.Fatalf("failed to read main.go: %v", readErr)
 	}
