@@ -219,9 +219,9 @@ func updateWorkspaceMovedFileImports(
 	movedSymbols map[string]bool,
 	remainingFilesInOldDir int,
 ) error {
-	return filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
-			return err
+	return filepath.Walk(moduleRoot, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
+			return walkErr
 		}
 		return processFileMovedImports(path, sourceDir, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
 	})

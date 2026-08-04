@@ -68,9 +68,9 @@ func MoveDirectory(opts MoveDirOptions) error {
 	}
 
 	// Update package declarations inside moved directory files according to their specific directory level
-	err = filepath.Walk(absDest, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
-			return err
+	err = filepath.Walk(absDest, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
+			return walkErr
 		}
 		fset := token.NewFileSet()
 		astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
@@ -92,9 +92,9 @@ func MoveDirectory(opts MoveDirOptions) error {
 	}
 
 	// Walk workspace and update import specs across all .go files
-	err = filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
-			return err
+	err = filepath.Walk(moduleRoot, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
+			return walkErr
 		}
 
 		fset := token.NewFileSet()
