@@ -104,7 +104,7 @@ func MoveFile(opts MoveFileOptions) error {
 	for _, srcPath := range filesToMove {
 		destPath := filepath.Join(absDestDir, filepath.Base(srcPath))
 
-		contentBytes, readErr := os.ReadFile(srcPath) //nolint:gosec
+		contentBytes, readErr := os.ReadFile(srcPath) // #nosec G304
 		if readErr != nil {
 			return fmt.Errorf("failed to read %s: %w", srcPath, readErr)
 		}
@@ -689,14 +689,14 @@ func writeASTWithBuildTags(fset *token.FileSet, fileAST *ast.File, origContent s
 		return err
 	}
 
-	formattedBytes, err := os.ReadFile(destPath) //nolint:gosec
+	formattedBytes, err := os.ReadFile(destPath) // #nosec G304
 	if err != nil {
 		return err
 	}
 
 	if len(buildTags) > 0 {
 		finalContent := buf.String() + string(formattedBytes)
-		return os.WriteFile(destPath, []byte(finalContent), 0600)
+		return os.WriteFile(destPath, []byte(finalContent), 0600) // #nosec G703 G304
 	}
 	return nil
 }

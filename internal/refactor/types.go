@@ -73,7 +73,7 @@ func FindModuleRoot(startDir string) (string, error) {
 
 // GetModuleName reads module path from go.mod in moduleRoot.
 func GetModuleName(moduleRoot string) (string, error) {
-	content, err := os.ReadFile(filepath.Join(moduleRoot, "go.mod")) //nolint:gosec
+	content, err := os.ReadFile(filepath.Join(moduleRoot, "go.mod")) // #nosec G304
 	if err != nil {
 		return "", err
 	}
