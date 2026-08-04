@@ -104,15 +104,15 @@ func MoveFile(opts MoveFileOptions) error {
 	for _, srcPath := range filesToMove {
 		destPath := filepath.Join(absDestDir, filepath.Base(srcPath))
 
-		contentBytes, err := os.ReadFile(srcPath) //nolint:gosec
-		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", srcPath, err)
+		contentBytes, readErr := os.ReadFile(srcPath) // #nosec G304
+		if readErr != nil {
+			return fmt.Errorf("failed to read %s: %w", srcPath, readErr)
 		}
 
 		fset := token.NewFileSet()
-		fileAST, err := parser.ParseFile(fset, srcPath, contentBytes, parser.ParseComments)
-		if err != nil {
-			return fmt.Errorf("failed to parse %s: %w", srcPath, err)
+		fileAST, parseErr := parser.ParseFile(fset, srcPath, contentBytes, parser.ParseComments)
+		if parseErr != nil {
+			return fmt.Errorf("failed to parse %s: %w", srcPath, parseErr)
 		}
 
 		targetPkgName := newPkgName
@@ -122,12 +122,12 @@ func MoveFile(opts MoveFileOptions) error {
 
 		fileAST.Name.Name = targetPkgName
 
-		if err := writeASTWithBuildTags(fset, fileAST, string(contentBytes), destPath); err != nil {
-			return fmt.Errorf("failed to write moved file %s: %w", destPath, err)
+		if writeErr := writeASTWithBuildTags(fset, fileAST, string(contentBytes), destPath); writeErr != nil {
+			return fmt.Errorf("failed to write moved file %s: %w", destPath, writeErr)
 		}
 
-		if err := os.Remove(srcPath); err != nil {
-			return fmt.Errorf("failed to remove old file %s: %w", srcPath, err)
+		if removeErr := os.Remove(srcPath); removeErr != nil {
+			return fmt.Errorf("failed to remove old file %s: %w", srcPath, removeErr)
 		}
 	}
 
@@ -219,9 +219,9 @@ func updateWorkspaceMovedFileImports(
 	movedSymbols map[string]bool,
 	remainingFilesInOldDir int,
 ) error {
-	return filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
-			return err
+	return filepath.Walk(moduleRoot, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
+			return walkErr
 		}
 		return processFileMovedImports(path, sourceDir, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
 	})
@@ -689,14 +689,14 @@ func writeASTWithBuildTags(fset *token.FileSet, fileAST *ast.File, origContent s
 		return err
 	}
 
-	formattedBytes, err := os.ReadFile(destPath) //nolint:gosec
+	formattedBytes, err := os.ReadFile(destPath) // #nosec G304
 	if err != nil {
 		return err
 	}
 
 	if len(buildTags) > 0 {
 		finalContent := buf.String() + string(formattedBytes)
-		return os.WriteFile(destPath, []byte(finalContent), 0600)
+		return os.WriteFile(destPath, []byte(finalContent), 0600) // #nosec G703 G304
 	}
 	return nil
 }
