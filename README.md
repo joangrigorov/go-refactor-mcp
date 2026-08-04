@@ -23,7 +23,7 @@ When AI agents perform refactoring manually via search-and-replace, they often m
 | Tool Name | Parameters | Description |
 |---|---|---|
 | `rename_symbol` | `directory` (string, required)<br>`from` (string, required)<br>`to` (string, required)<br>`file` (string, optional)<br>`offset` (number, optional) | Renames a variable, function, struct, interface, package, or generic type parameter across the entire module. Handles cross-package, aliased, and dot-imported symbols. |
-| `move_file` | `source_file` (string, required)<br>`dest_dir` (string, required) | Moves a `.go` file (and associated `_test.go`) to a new directory. Preserves `//go:build` tags, updates package clauses, updates import paths, and aborts if an import cycle is detected. |
+| `move_file` | `source_file` (string, required)<br>`dest_dir` (string, optional)<br>`new_name` (string, optional) | Moves or renames a `.go` file (and associated `_test.go`) to a new directory or filename. Preserves `//go:build` tags, updates package clauses, updates import paths, and aborts if an import cycle is detected. |
 | `move_directory` | `source_dir` (string, required)<br>`dest_dir` (string, required) | Moves an entire package directory and updates all import paths referencing this package and its sub-packages workspace-wide. |
 | `implement_interface` | `file_path` (string, required)<br>`struct_name` (string, required)<br>`interface_name` (string, required) | Generates missing method stubs for a struct to satisfy an interface (e.g. `io.Reader`, `fmt.Stringer`, or local interface). |
 | `analyze_shadowing` | `target_path` (string, required) | Scans a file or package directory for shadowed variables, returning structured reports to prevent logic bugs. |
@@ -35,7 +35,7 @@ When AI agents perform refactoring manually via search-and-replace, they often m
 Add this concise snippet to your project's `AGENTS.md` or `CLAUDE.md` to instruct AI agents to use `go-refactor-mcp` tools instead of manual text edits:
 
 > For Go refactoring, always use `go-refactor` MCP tools:
-> - **Moving Go files**: Use `move_file`.
+> - **Moving or renaming Go files**: Use `move_file`.
 > - **Renaming or moving packages**: Use `move_directory` (renames package directory, package clauses, and imports module-wide).
 > - **Renaming symbols** (variables, functions, structs, interfaces, package aliases, generic type parameters): Use `rename_symbol`.
 

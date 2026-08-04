@@ -34,9 +34,10 @@ func registerTools(s *server.MCPServer) {
 
 	// 2. move_file
 	moveFileTool := mcp.NewTool("move_file",
-		mcp.WithDescription("Moves a .go file (and associated _test.go) to a new directory, updating package clauses, build tags, and imports without creating cyclic dependencies."),
+		mcp.WithDescription("Moves or renames a .go file (and associated _test.go) to a new directory or filename, updating package clauses, build tags, and imports without creating cyclic dependencies."),
 		mcp.WithString("source_file", mcp.Required(), mcp.Description("Source .go file path")),
-		mcp.WithString("dest_dir", mcp.Required(), mcp.Description("Destination directory path")),
+		mcp.WithString("dest_dir", mcp.Description("Destination directory path (optional if new_name is provided)")),
+		mcp.WithString("new_name", mcp.Description("Optional new filename (e.g. 'saga.go') for renaming in-place or upon move")),
 	)
 	s.AddTool(moveFileTool, handleMoveFile)
 
@@ -89,14 +90,21 @@ func handleRenameSymbol(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	src, _ := req.Params.Arguments["source_file"].(string)
 	dest, _ := req.Params.Arguments["dest_dir"].(string)
+	newName, _ := req.Params.Arguments["new_name"].(string)
 
 	opts := refactor.MoveFileOptions{
 		SourceFile: src,
 		DestDir:    dest,
+		NewName:    newName,
 	}
 
 	if err := refactor.MoveFile(opts); err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("move_file failed: %v", err)), nil
+	}
+	if dest != "" && newName != "" {
+		return mcp.NewToolResultText(fmt.Sprintf("Successfully moved and renamed file '%s' to '%s/%s'", src, dest, newName)), nil
+	} else if newName != "" {
+		return mcp.NewToolResultText(fmt.Sprintf("Successfully renamed file '%s' to '%s'", src, newName)), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully moved file '%s' to '%s'", src, dest)), nil
 }

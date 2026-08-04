@@ -17,22 +17,18 @@ import (
 	ximports "golang.org/x/tools/imports"
 )
 
-// MoveFileOptions specifies arguments for moving a file.
+// MoveFileOptions specifies arguments for moving or renaming a file.
 type MoveFileOptions struct {
 	SourceFile string
 	DestDir    string
+	NewName    string
 }
 
-// MoveFile moves SourceFile (and associated _test.go file if present) to DestDir.
+// MoveFile moves SourceFile (and associated _test.go file if present) to DestDir and/or renames it to NewName.
 func MoveFile(opts MoveFileOptions) error {
 	absSource, err := filepath.Abs(opts.SourceFile)
 	if err != nil {
 		return fmt.Errorf("invalid source file path: %w", err)
-	}
-
-	absDestDir, err := filepath.Abs(opts.DestDir)
-	if err != nil {
-		return fmt.Errorf("invalid destination directory path: %w", err)
 	}
 
 	info, statErr := os.Stat(absSource)
@@ -44,8 +40,32 @@ func MoveFile(opts MoveFileOptions) error {
 	}
 
 	sourceDir := filepath.Dir(absSource)
-	if sourceDir == absDestDir {
-		return nil // Moving file into its current directory is a no-op
+
+	absDestDir := sourceDir
+	if strings.TrimSpace(opts.DestDir) != "" {
+		d, err := filepath.Abs(opts.DestDir)
+		if err != nil {
+			return fmt.Errorf("invalid destination directory path: %w", err)
+		}
+		absDestDir = d
+	}
+
+	newName := strings.TrimSpace(opts.NewName)
+	if newName != "" {
+		newName = filepath.Base(newName)
+		if !strings.HasSuffix(newName, ".go") {
+			newName += ".go"
+		}
+	}
+
+	origBaseName := filepath.Base(absSource)
+	targetBaseName := origBaseName
+	if newName != "" {
+		targetBaseName = newName
+	}
+
+	if sourceDir == absDestDir && origBaseName == targetBaseName {
+		return nil // Moving file into its current directory with unchanged name is a no-op
 	}
 
 	moduleRoot, err := FindModuleRoot(sourceDir)
@@ -53,7 +73,7 @@ func MoveFile(opts MoveFileOptions) error {
 		return fmt.Errorf("failed finding module root: %w", err)
 	}
 
-	baseName := filepath.Base(absSource)
+	baseName := origBaseName
 	var filesToMove []string
 	filesToMove = append(filesToMove, absSource)
 
@@ -103,7 +123,8 @@ func MoveFile(opts MoveFileOptions) error {
 
 	// Physically move files and update package clauses
 	for _, srcPath := range filesToMove {
-		destPath := filepath.Join(absDestDir, filepath.Base(srcPath))
+		destFileName := computeDestFileName(srcPath, absSource, newName)
+		destPath := filepath.Join(absDestDir, destFileName)
 
 		contentBytes, readErr := os.ReadFile(srcPath) // #nosec G304
 		if readErr != nil {
@@ -127,8 +148,10 @@ func MoveFile(opts MoveFileOptions) error {
 			return fmt.Errorf("failed to write moved file %s: %w", destPath, writeErr)
 		}
 
-		if removeErr := os.Remove(srcPath); removeErr != nil {
-			return fmt.Errorf("failed to remove old file %s: %w", srcPath, removeErr)
+		if destPath != srcPath {
+			if removeErr := os.Remove(srcPath); removeErr != nil {
+				return fmt.Errorf("failed to remove old file %s: %w", srcPath, removeErr)
+			}
 		}
 	}
 
@@ -138,6 +161,26 @@ func MoveFile(opts MoveFileOptions) error {
 	}
 
 	return nil
+}
+
+func computeDestFileName(srcPath, absSource, newName string) string {
+	if newName == "" {
+		return filepath.Base(srcPath)
+	}
+
+	origBase := filepath.Base(absSource)
+	if srcPath == absSource {
+		return newName
+	}
+
+	if strings.HasSuffix(origBase, "_test.go") {
+		baseNoExt := strings.TrimSuffix(newName, "_test.go")
+		baseNoExt = strings.TrimSuffix(baseNoExt, ".go")
+		return baseNoExt + ".go"
+	}
+
+	baseNoExt := strings.TrimSuffix(newName, ".go")
+	return baseNoExt + "_test.go"
 }
 
 func calculateImportPath(moduleRoot, dir string) (string, error) {
