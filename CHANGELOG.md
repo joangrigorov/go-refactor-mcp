@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.2.0...v0.2.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* **refactor:** handle parent-to-child directory moves, cycle checks, and file renaming ([#10](https://github.com/joangrigorov/go-refactor-mcp/issues/10)) ([45fc045](https://github.com/joangrigorov/go-refactor-mcp/commit/45fc045bd2655d52ff75b793697c24896d7c545c))
+
 ## [0.2.0](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.1.0...v0.2.0) (2026-08-04)
 
 
