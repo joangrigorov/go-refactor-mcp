@@ -456,16 +456,28 @@ func updateFileImportSpecsAndSelectors(
 	movedSymbols map[string]bool,
 	usesMovedSymbols, usesRemainingSymbols bool,
 ) bool {
-	modified := false
+	if !usesMovedSymbols {
+		return false
+	}
 
-	if usesMovedSymbols && !usesRemainingSymbols {
-		oldImpSpec.Path.Value = strconv.Quote(newImportPath)
-		if oldImpSpec.Name != nil && oldImpSpec.Name.Name == oldPkgName {
-			oldImpSpec.Name.Name = newPkgName
+	modified := false
+	targetAlias := newPkgName
+
+	existingSpec := findImportSpec(astFile, newImportPath)
+	if existingSpec != nil {
+		targetAlias = getImportAlias(existingSpec, newPkgName)
+		if !usesRemainingSymbols && oldImpSpec != existingSpec {
+			removeImportSpec(astFile, oldImpSpec)
+			modified = true
 		}
-		modified = true
-	} else if usesMovedSymbols && usesRemainingSymbols {
-		if !hasImport(astFile, newImportPath) {
+	} else {
+		if !usesRemainingSymbols {
+			oldImpSpec.Path.Value = strconv.Quote(newImportPath)
+			if oldImpSpec.Name != nil && (oldImpSpec.Name.Name == oldPkgName || oldImpSpec.Name.Name == newPkgName) {
+				oldImpSpec.Name = nil
+			}
+			modified = true
+		} else {
 			newSpec := &ast.ImportSpec{
 				Path: &ast.BasicLit{
 					Kind:  token.STRING,
@@ -477,7 +489,7 @@ func updateFileImportSpecsAndSelectors(
 		}
 	}
 
-	if usesMovedSymbols && oldPkgName != newPkgName {
+	if oldPkgName != targetAlias || oldImpAlias != targetAlias {
 		ast.Inspect(astFile, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)
 			if !ok {
@@ -488,7 +500,7 @@ func updateFileImportSpecsAndSelectors(
 				return true
 			}
 			if movedSymbols[sel.Sel.Name] {
-				id.Name = newPkgName
+				id.Name = targetAlias
 				modified = true
 			}
 			return true
@@ -498,16 +510,44 @@ func updateFileImportSpecsAndSelectors(
 	return modified
 }
 
-func hasImport(fileAST *ast.File, importPath string) bool {
+func findImportSpec(fileAST *ast.File, importPath string) *ast.ImportSpec {
 	for _, imp := range fileAST.Imports {
 		if imp.Path != nil {
 			path, err := strconv.Unquote(imp.Path.Value)
 			if err == nil && path == importPath {
-				return true
+				return imp
 			}
 		}
 	}
-	return false
+	return nil
+}
+
+func getImportAlias(spec *ast.ImportSpec, defaultPkgName string) string {
+	if spec != nil && spec.Name != nil && spec.Name.Name != "" && spec.Name.Name != "_" && spec.Name.Name != "." {
+		return spec.Name.Name
+	}
+	return defaultPkgName
+}
+
+func removeImportSpec(fileAST *ast.File, targetSpec *ast.ImportSpec) {
+	for _, decl := range fileAST.Decls {
+		g, ok := decl.(*ast.GenDecl)
+		if ok && g.Tok == token.IMPORT {
+			var newSpecs []ast.Spec
+			for _, s := range g.Specs {
+				if is, ok := s.(*ast.ImportSpec); ok && is == targetSpec {
+					continue
+				}
+				newSpecs = append(newSpecs, s)
+			}
+			g.Specs = newSpecs
+			return
+		}
+	}
+}
+
+func hasImport(fileAST *ast.File, importPath string) bool {
+	return findImportSpec(fileAST, importPath) != nil
 }
 
 func addImportSpec(fileAST *ast.File, spec *ast.ImportSpec) {
