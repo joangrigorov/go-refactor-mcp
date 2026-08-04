@@ -73,7 +73,7 @@ Flags:
 
 Available MCP Tools:
   - rename_symbol       Renames a symbol across the entire module.
-  - move_file           Moves a .go file (and _test.go), updating package/imports.
+  - move_file           Moves or renames a .go file (and _test.go), updating package/imports.
   - move_directory      Moves a package directory and updates module import paths.
   - implement_interface Generates missing interface method stubs for a struct.
   - analyze_shadowing   Scans for shadowed variables in files or packages.
