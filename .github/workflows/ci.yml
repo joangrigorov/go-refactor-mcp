@@ -18,7 +18,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run actionlint
-        uses: rhysd/actionlint@v1.7.7
+        uses: rhysd/actionlint@v1.7.12
 
   poutine:
     name: Poutine Workflow Security Scan
@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Poutine
-        uses: boostsecurityio/poutine-action@v0.15.0
+        uses: boostsecurityio/poutine-action@v1.1.4
 
   security:
     name: Go Security Audits
