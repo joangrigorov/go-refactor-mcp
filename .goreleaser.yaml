@@ -33,6 +33,17 @@ archives:
       {{- if eq .Arch "amd64" }}x86_64
       {{- else }}{{ .Arch }}{{ end }}
 
+nfpms:
+  - file_name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    homepage: https://github.com/joangrigorov/go-refactor-mcp
+    maintainer: Joan Grigorov
+    description: "Model Context Protocol (MCP) server for Go refactoring"
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+
 checksum:
   name_template: 'checksums.txt'
 
