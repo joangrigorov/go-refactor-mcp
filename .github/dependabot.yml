@@ -25,16 +25,3 @@ updates:
       go-dependencies:
         patterns:
           - "*"
-
-  # Docker updates
-  - package-ecosystem: "docker"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "fix(deps)"
-      prefix-development: "fix(deps)"
-    groups:
-      docker-dependencies:
-        patterns:
-          - "*"

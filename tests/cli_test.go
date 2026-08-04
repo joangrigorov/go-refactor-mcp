@@ -3,13 +3,18 @@ package tests
 import (
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func TestCLIHelpAndVersion(t *testing.T) {
 	tempDir := t.TempDir()
-	binaryPath := filepath.Join(tempDir, "go-refactor-mcp")
+	binaryName := "go-refactor-mcp"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(tempDir, binaryName)
 
 	// Build binary for testing CLI flags
 	buildCmd := exec.Command("go", "build", "-o", binaryPath, "../main.go") //nolint:gosec

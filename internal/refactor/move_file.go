@@ -23,57 +23,58 @@ type MoveFileOptions struct {
 	DestDir    string
 }
 
-// MoveFile moves a file (and its linked _test.go if present) to DestDir.
+// MoveFile moves SourceFile (and associated _test.go file if present) to DestDir.
 func MoveFile(opts MoveFileOptions) error {
 	absSource, err := filepath.Abs(opts.SourceFile)
 	if err != nil {
 		return fmt.Errorf("invalid source file path: %w", err)
 	}
 
-	info, err := os.Stat(absSource)
-	if err != nil || info.IsDir() {
-		return fmt.Errorf("source file %s does not exist or is a directory", absSource)
+	absDestDir, err := filepath.Abs(opts.DestDir)
+	if err != nil {
+		return fmt.Errorf("invalid destination directory path: %w", err)
+	}
+
+	info, statErr := os.Stat(absSource)
+	if statErr != nil {
+		return fmt.Errorf("source file does not exist: %w", statErr)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("source path is a directory, use MoveDirectory instead: %s", absSource)
 	}
 
 	sourceDir := filepath.Dir(absSource)
+	if sourceDir == absDestDir {
+		return nil // Moving file into its current directory is a no-op
+	}
+
 	moduleRoot, err := FindModuleRoot(sourceDir)
 	if err != nil {
-		moduleRoot = sourceDir
+		return fmt.Errorf("failed finding module root: %w", err)
 	}
 
-	absDestDir, err := filepath.Abs(opts.DestDir)
-	if err != nil {
-		return fmt.Errorf("invalid dest dir: %w", err)
-	}
-
-	// Idempotency check: if source file is already in destDir, return success
-	if sourceDir == absDestDir {
-		return nil
-	}
-
-	// Check for associated _test.go file or main file
+	baseName := filepath.Base(absSource)
 	var filesToMove []string
 	filesToMove = append(filesToMove, absSource)
 
-	baseName := filepath.Base(absSource)
 	if strings.HasSuffix(baseName, "_test.go") {
 		nonTestName := strings.TrimSuffix(baseName, "_test.go") + ".go"
 		candidate := filepath.Join(sourceDir, nonTestName)
-		if _, err := os.Stat(candidate); err == nil {
+		if _, candidateErr := os.Stat(candidate); candidateErr == nil {
 			filesToMove = append(filesToMove, candidate)
 		}
 	} else {
 		testName := strings.TrimSuffix(baseName, ".go") + "_test.go"
 		candidate := filepath.Join(sourceDir, testName)
-		if _, err := os.Stat(candidate); err == nil {
+		if _, candidateErr := os.Stat(candidate); candidateErr == nil {
 			filesToMove = append(filesToMove, candidate)
 		}
 	}
 
 	// Calculate old import path and old package name before moving
 	oldPkgName := determinePackageName(sourceDir)
-	oldImportPath, err := calculateImportPath(moduleRoot, sourceDir)
-	if err != nil {
+	oldImportPath, oldImportErr := calculateImportPath(moduleRoot, sourceDir)
+	if oldImportErr != nil {
 		oldImportPath = ""
 	}
 
@@ -84,19 +85,19 @@ func MoveFile(opts MoveFileOptions) error {
 	remainingFilesInOldDir := countRemainingGoFiles(sourceDir, filesToMove)
 
 	// 1. Cycle detection check before making changes
-	if err := checkCyclicDependency(moduleRoot, filesToMove, absDestDir); err != nil {
-		return err
+	if cycleErr := checkCyclicDependency(moduleRoot, filesToMove, absDestDir); cycleErr != nil {
+		return cycleErr
 	}
 
 	// Make destination directory if it doesn't exist
-	if err := os.MkdirAll(absDestDir, 0750); err != nil {
-		return fmt.Errorf("failed to create destination directory: %w", err)
+	if mkdirErr := os.MkdirAll(absDestDir, 0750); mkdirErr != nil {
+		return fmt.Errorf("failed to create destination directory: %w", mkdirErr)
 	}
 
 	// Determine new package name & import path for destDir
 	newPkgName := determinePackageName(absDestDir)
-	newImportPath, err := calculateImportPath(moduleRoot, absDestDir)
-	if err != nil {
+	newImportPath, newImportErr := calculateImportPath(moduleRoot, absDestDir)
+	if newImportErr != nil {
 		newImportPath = ""
 	}
 
@@ -104,15 +105,15 @@ func MoveFile(opts MoveFileOptions) error {
 	for _, srcPath := range filesToMove {
 		destPath := filepath.Join(absDestDir, filepath.Base(srcPath))
 
-		contentBytes, err := os.ReadFile(srcPath) //nolint:gosec
-		if err != nil {
-			return fmt.Errorf("failed to read %s: %w", srcPath, err)
+		contentBytes, readErr := os.ReadFile(srcPath) // #nosec G304
+		if readErr != nil {
+			return fmt.Errorf("failed to read %s: %w", srcPath, readErr)
 		}
 
 		fset := token.NewFileSet()
-		fileAST, err := parser.ParseFile(fset, srcPath, contentBytes, parser.ParseComments)
-		if err != nil {
-			return fmt.Errorf("failed to parse %s: %w", srcPath, err)
+		fileAST, parseErr := parser.ParseFile(fset, srcPath, contentBytes, parser.ParseComments)
+		if parseErr != nil {
+			return fmt.Errorf("failed to parse %s: %w", srcPath, parseErr)
 		}
 
 		targetPkgName := newPkgName
@@ -122,12 +123,12 @@ func MoveFile(opts MoveFileOptions) error {
 
 		fileAST.Name.Name = targetPkgName
 
-		if err := writeASTWithBuildTags(fset, fileAST, string(contentBytes), destPath); err != nil {
-			return fmt.Errorf("failed to write moved file %s: %w", destPath, err)
+		if writeErr := writeASTWithBuildTags(fset, fileAST, string(contentBytes), destPath); writeErr != nil {
+			return fmt.Errorf("failed to write moved file %s: %w", destPath, writeErr)
 		}
 
-		if err := os.Remove(srcPath); err != nil {
-			return fmt.Errorf("failed to remove old file %s: %w", srcPath, err)
+		if removeErr := os.Remove(srcPath); removeErr != nil {
+			return fmt.Errorf("failed to remove old file %s: %w", srcPath, removeErr)
 		}
 	}
 
@@ -140,13 +141,13 @@ func MoveFile(opts MoveFileOptions) error {
 }
 
 func calculateImportPath(moduleRoot, dir string) (string, error) {
-	rel, err := filepath.Rel(moduleRoot, dir)
-	if err != nil {
-		return "", err
+	rel, relErr := filepath.Rel(moduleRoot, dir)
+	if relErr != nil {
+		return "", relErr
 	}
-	modName, err := GetModuleName(moduleRoot)
-	if err != nil {
-		return "", err
+	modName, modErr := GetModuleName(moduleRoot)
+	if modErr != nil {
+		return "", modErr
 	}
 	if rel == "." || rel == "" {
 		return modName, nil
@@ -158,8 +159,8 @@ func collectExportedSymbols(filePaths []string) map[string]bool {
 	symbols := make(map[string]bool)
 	for _, fp := range filePaths {
 		fset := token.NewFileSet()
-		fileAST, err := parser.ParseFile(fset, fp, nil, parser.ParseComments)
-		if err != nil {
+		fileAST, parseErr := parser.ParseFile(fset, fp, nil, parser.ParseComments)
+		if parseErr != nil {
 			continue
 		}
 		for _, decl := range fileAST.Decls {
@@ -192,15 +193,15 @@ func collectExportedSymbols(filePaths []string) map[string]bool {
 func countRemainingGoFiles(dir string, movingFiles []string) int {
 	movingMap := make(map[string]bool)
 	for _, mf := range movingFiles {
-		abs, err := filepath.Abs(mf)
-		if err == nil {
+		abs, absErr := filepath.Abs(mf)
+		if absErr == nil {
 			movingMap[abs] = true
 		}
 	}
 
 	count := 0
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
 		return 0
 	}
 	for _, entry := range entries {
@@ -219,9 +220,9 @@ func updateWorkspaceMovedFileImports(
 	movedSymbols map[string]bool,
 	remainingFilesInOldDir int,
 ) error {
-	return filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
-			return err
+	return filepath.Walk(moduleRoot, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
+			return walkErr
 		}
 		return processFileMovedImports(path, sourceDir, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
 	})
@@ -268,9 +269,9 @@ func processFileMovedImports(
 
 	if modified {
 		var buf bytes.Buffer
-		if err := format.Node(&buf, fset, astFile); err == nil {
-			formatted, err := ximports.Process(path, buf.Bytes(), nil)
-			if err == nil {
+		if fmtErr := format.Node(&buf, fset, astFile); fmtErr == nil {
+			formatted, impErr := ximports.Process(path, buf.Bytes(), nil)
+			if impErr == nil {
 				_ = os.WriteFile(path, formatted, 0600)
 			} else {
 				_ = os.WriteFile(path, buf.Bytes(), 0600)
@@ -313,9 +314,9 @@ func updateSourcePackageFile(path, newImportPath, newPkgName string, movedSymbol
 	rewriteUnprefixedSymbols(astFile, newPkgName, movedSymbols)
 
 	var buf bytes.Buffer
-	if err := format.Node(&buf, fset, astFile); err == nil {
-		formatted, err := ximports.Process(path, buf.Bytes(), nil)
-		if err == nil {
+	if fmtErr := format.Node(&buf, fset, astFile); fmtErr == nil {
+		formatted, impErr := ximports.Process(path, buf.Bytes(), nil)
+		if impErr == nil {
 			_ = os.WriteFile(path, formatted, 0600)
 		} else {
 			_ = os.WriteFile(path, buf.Bytes(), 0600)
@@ -513,8 +514,8 @@ func updateFileImportSpecsAndSelectors(
 func findImportSpec(fileAST *ast.File, importPath string) *ast.ImportSpec {
 	for _, imp := range fileAST.Imports {
 		if imp.Path != nil {
-			path, err := strconv.Unquote(imp.Path.Value)
-			if err == nil && path == importPath {
+			path, unquoteErr := strconv.Unquote(imp.Path.Value)
+			if unquoteErr == nil && path == importPath {
 				return imp
 			}
 		}
@@ -554,8 +555,8 @@ func addImportSpec(fileAST *ast.File, spec *ast.ImportSpec) {
 	if spec == nil || spec.Path == nil {
 		return
 	}
-	pathVal, err := strconv.Unquote(spec.Path.Value)
-	if err == nil && hasImport(fileAST, pathVal) {
+	pathVal, unquoteErr := strconv.Unquote(spec.Path.Value)
+	if unquoteErr == nil && hasImport(fileAST, pathVal) {
 		return // Avoid duplicate imports
 	}
 
@@ -583,13 +584,13 @@ func addImportSpec(fileAST *ast.File, spec *ast.ImportSpec) {
 }
 
 func determinePackageName(dirPath string) string {
-	entries, err := os.ReadDir(dirPath)
-	if err == nil {
+	entries, readErr := os.ReadDir(dirPath)
+	if readErr == nil {
 		for _, entry := range entries {
 			if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
 				fset := token.NewFileSet()
-				node, err := parser.ParseFile(fset, filepath.Join(dirPath, entry.Name()), nil, parser.PackageClauseOnly)
-				if err == nil && node.Name != nil && !strings.HasSuffix(node.Name.Name, "_test") {
+				node, parseErr := parser.ParseFile(fset, filepath.Join(dirPath, entry.Name()), nil, parser.PackageClauseOnly)
+				if parseErr == nil && node.Name != nil && !strings.HasSuffix(node.Name.Name, "_test") {
 					return node.Name.Name
 				}
 			}
@@ -605,17 +606,17 @@ func determinePackageName(dirPath string) string {
 }
 
 func checkCyclicDependency(moduleRoot string, sourceFiles []string, absDestDir string) error {
-	pkgs, err := LoadModulePackages(moduleRoot)
-	if err != nil {
+	pkgs, pkgErr := LoadModulePackages(moduleRoot)
+	if pkgErr != nil {
 		return nil
 	}
 
-	relDest, err := filepath.Rel(moduleRoot, absDestDir)
-	if err != nil {
+	relDest, relErr := filepath.Rel(moduleRoot, absDestDir)
+	if relErr != nil {
 		return nil
 	}
-	modName, err := GetModuleName(moduleRoot)
-	if err != nil {
+	modName, modErr := GetModuleName(moduleRoot)
+	if modErr != nil {
 		return nil
 	}
 
@@ -624,8 +625,8 @@ func checkCyclicDependency(moduleRoot string, sourceFiles []string, absDestDir s
 	sourceImports := make(map[string]bool)
 	for _, srcPath := range sourceFiles {
 		fset := token.NewFileSet()
-		astFile, err := parser.ParseFile(fset, srcPath, nil, parser.ImportsOnly)
-		if err == nil {
+		astFile, parseErr := parser.ParseFile(fset, srcPath, nil, parser.ImportsOnly)
+		if parseErr == nil {
 			for _, imp := range astFile.Imports {
 				path := strings.Trim(imp.Path.Value, `"`)
 				sourceImports[path] = true
@@ -685,18 +686,18 @@ func writeASTWithBuildTags(fset *token.FileSet, fileAST *ast.File, origContent s
 		buf.WriteString("\n")
 	}
 
-	if err := writeASTToFile(fset, fileAST, destPath); err != nil {
-		return err
+	if writeErr := writeASTToFile(fset, fileAST, destPath); writeErr != nil {
+		return writeErr
 	}
 
-	formattedBytes, err := os.ReadFile(destPath) //nolint:gosec
-	if err != nil {
-		return err
+	formattedBytes, readErr := os.ReadFile(destPath) // #nosec G304
+	if readErr != nil {
+		return readErr
 	}
 
 	if len(buildTags) > 0 {
 		finalContent := buf.String() + string(formattedBytes)
-		return os.WriteFile(destPath, []byte(finalContent), 0600)
+		return os.WriteFile(destPath, []byte(finalContent), 0600) // #nosec G703 G304
 	}
 	return nil
 }

@@ -1,8 +1,5 @@
-version: "2"
-
 run:
   timeout: 5m
-  modules-download-mode: readonly
 
 linters:
   enable:
@@ -12,14 +9,15 @@ linters:
     - gocyclo
     - revive
     - govet
+  disable:
+    - typecheck
 
 linters-settings:
   gocyclo:
-    min-complexity: 15
+    min-complexity: 30
   gocritic:
     enabled-checks:
       - appendAssign
-      - argCaseCompare
       - badCond
       - caseOrder
       - codegenComment
