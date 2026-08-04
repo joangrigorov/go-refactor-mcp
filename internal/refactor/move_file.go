@@ -1,16 +1,20 @@
 package refactor
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
-
 	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"golang.org/x/tools/go/packages"
+	ximports "golang.org/x/tools/imports"
 )
 
 // MoveFileOptions specifies arguments for moving a file.
@@ -31,9 +35,10 @@ func MoveFile(opts MoveFileOptions) error {
 		return fmt.Errorf("source file %s does not exist or is a directory", absSource)
 	}
 
-	moduleRoot, err := FindModuleRoot(filepath.Dir(absSource))
+	sourceDir := filepath.Dir(absSource)
+	moduleRoot, err := FindModuleRoot(sourceDir)
 	if err != nil {
-		moduleRoot = filepath.Dir(absSource)
+		moduleRoot = sourceDir
 	}
 
 	absDestDir, err := filepath.Abs(opts.DestDir)
@@ -42,7 +47,7 @@ func MoveFile(opts MoveFileOptions) error {
 	}
 
 	// Idempotency check: if source file is already in destDir, return success
-	if filepath.Dir(absSource) == absDestDir {
+	if sourceDir == absDestDir {
 		return nil
 	}
 
@@ -53,17 +58,30 @@ func MoveFile(opts MoveFileOptions) error {
 	baseName := filepath.Base(absSource)
 	if strings.HasSuffix(baseName, "_test.go") {
 		nonTestName := strings.TrimSuffix(baseName, "_test.go") + ".go"
-		candidate := filepath.Join(filepath.Dir(absSource), nonTestName)
+		candidate := filepath.Join(sourceDir, nonTestName)
 		if _, err := os.Stat(candidate); err == nil {
 			filesToMove = append(filesToMove, candidate)
 		}
 	} else {
 		testName := strings.TrimSuffix(baseName, ".go") + "_test.go"
-		candidate := filepath.Join(filepath.Dir(absSource), testName)
+		candidate := filepath.Join(sourceDir, testName)
 		if _, err := os.Stat(candidate); err == nil {
 			filesToMove = append(filesToMove, candidate)
 		}
 	}
+
+	// Calculate old import path and old package name before moving
+	oldPkgName := determinePackageName(sourceDir)
+	oldImportPath, err := calculateImportPath(moduleRoot, sourceDir)
+	if err != nil {
+		oldImportPath = ""
+	}
+
+	// Collect exported top-level symbols defined in source files being moved
+	movedSymbols := collectExportedSymbols(filesToMove)
+
+	// Check if old package directory has remaining .go files after moving filesToMove
+	remainingFilesInOldDir := countRemainingGoFiles(sourceDir, filesToMove)
 
 	// 1. Cycle detection check before making changes
 	if err := checkCyclicDependency(moduleRoot, filesToMove, absDestDir); err != nil {
@@ -75,13 +93,17 @@ func MoveFile(opts MoveFileOptions) error {
 		return fmt.Errorf("failed to create destination directory: %w", err)
 	}
 
-	// Determine new package name for destDir
+	// Determine new package name & import path for destDir
 	newPkgName := determinePackageName(absDestDir)
+	newImportPath, err := calculateImportPath(moduleRoot, absDestDir)
+	if err != nil {
+		newImportPath = ""
+	}
 
+	// Physically move files and update package clauses
 	for _, srcPath := range filesToMove {
 		destPath := filepath.Join(absDestDir, filepath.Base(srcPath))
 
-		// Read content & comments
 		contentBytes, err := os.ReadFile(srcPath) //nolint:gosec
 		if err != nil {
 			return fmt.Errorf("failed to read %s: %w", srcPath, err)
@@ -93,7 +115,6 @@ func MoveFile(opts MoveFileOptions) error {
 			return fmt.Errorf("failed to parse %s: %w", srcPath, err)
 		}
 
-		// Handle package name for test files vs main files
 		targetPkgName := newPkgName
 		if strings.HasSuffix(srcPath, "_test.go") && strings.HasSuffix(fileAST.Name.Name, "_test") {
 			targetPkgName = newPkgName + "_test"
@@ -101,25 +122,257 @@ func MoveFile(opts MoveFileOptions) error {
 
 		fileAST.Name.Name = targetPkgName
 
-		// Write modified file AST to destPath while preserving build tags
 		if err := writeASTWithBuildTags(fset, fileAST, string(contentBytes), destPath); err != nil {
 			return fmt.Errorf("failed to write moved file %s: %w", destPath, err)
 		}
 
-		// Remove old source file
 		if err := os.Remove(srcPath); err != nil {
 			return fmt.Errorf("failed to remove old file %s: %w", srcPath, err)
 		}
 	}
 
-	// Update module imports across the project
-	_ = updateModuleImports(moduleRoot)
+	// Update import paths and symbol selectors across workspace files
+	if oldImportPath != "" && newImportPath != "" && oldImportPath != newImportPath {
+		_ = updateWorkspaceMovedFileImports(moduleRoot, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
+	}
 
 	return nil
 }
 
+func calculateImportPath(moduleRoot, dir string) (string, error) {
+	rel, err := filepath.Rel(moduleRoot, dir)
+	if err != nil {
+		return "", err
+	}
+	modName, err := GetModuleName(moduleRoot)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || rel == "" {
+		return modName, nil
+	}
+	return filepath.ToSlash(filepath.Join(modName, rel)), nil
+}
+
+func collectExportedSymbols(filePaths []string) map[string]bool {
+	symbols := make(map[string]bool)
+	for _, fp := range filePaths {
+		fset := token.NewFileSet()
+		fileAST, err := parser.ParseFile(fset, fp, nil, parser.ParseComments)
+		if err != nil {
+			continue
+		}
+		for _, decl := range fileAST.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					switch s := spec.(type) {
+					case *ast.TypeSpec:
+						if unicode.IsUpper(rune(s.Name.Name[0])) {
+							symbols[s.Name.Name] = true
+						}
+					case *ast.ValueSpec:
+						for _, name := range s.Names {
+							if unicode.IsUpper(rune(name.Name[0])) {
+								symbols[name.Name] = true
+							}
+						}
+					}
+				}
+			case *ast.FuncDecl:
+				if d.Recv == nil && d.Name != nil && unicode.IsUpper(rune(d.Name.Name[0])) {
+					symbols[d.Name.Name] = true
+				}
+			}
+		}
+	}
+	return symbols
+}
+
+func countRemainingGoFiles(dir string, movingFiles []string) int {
+	movingMap := make(map[string]bool)
+	for _, mf := range movingFiles {
+		abs, err := filepath.Abs(mf)
+		if err == nil {
+			movingMap[abs] = true
+		}
+	}
+
+	count := 0
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".go") {
+			abs := filepath.Join(dir, entry.Name())
+			if !movingMap[abs] {
+				count++
+			}
+		}
+	}
+	return count
+}
+
+func updateWorkspaceMovedFileImports(
+	moduleRoot, oldImportPath, newImportPath, oldPkgName, newPkgName string,
+	movedSymbols map[string]bool,
+	remainingFilesInOldDir int,
+) error {
+	return filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
+			return err
+		}
+		return processFileMovedImports(path, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
+	})
+}
+
+func processFileMovedImports(
+	path, oldImportPath, newImportPath, oldPkgName, newPkgName string,
+	movedSymbols map[string]bool,
+	remainingFilesInOldDir int,
+) error {
+	fset := token.NewFileSet()
+	astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if parseErr != nil {
+		return nil
+	}
+
+	var oldImpSpec *ast.ImportSpec
+	var oldImpAlias string
+
+	for _, imp := range astFile.Imports {
+		impPath, _ := strconv.Unquote(imp.Path.Value)
+		if impPath == oldImportPath {
+			oldImpSpec = imp
+			if imp.Name != nil {
+				oldImpAlias = imp.Name.Name
+			} else {
+				oldImpAlias = oldPkgName
+			}
+			break
+		}
+	}
+
+	if oldImpSpec == nil {
+		return nil
+	}
+
+	usesMovedSymbols, usesRemainingSymbols := analyzeSymbolUsages(astFile, oldImpAlias, movedSymbols, remainingFilesInOldDir)
+
+	modified := updateFileImportSpecsAndSelectors(astFile, oldImpSpec, oldImpAlias, oldPkgName, newPkgName, newImportPath, movedSymbols, usesMovedSymbols, usesRemainingSymbols)
+
+	if modified {
+		var buf bytes.Buffer
+		if err := format.Node(&buf, fset, astFile); err == nil {
+			formatted, err := ximports.Process(path, buf.Bytes(), nil)
+			if err == nil {
+				_ = os.WriteFile(path, formatted, 0600)
+			} else {
+				_ = os.WriteFile(path, buf.Bytes(), 0600)
+			}
+		}
+	}
+
+	return nil
+}
+
+func analyzeSymbolUsages(astFile *ast.File, oldImpAlias string, movedSymbols map[string]bool, remainingFilesInOldDir int) (bool, bool) {
+	usesMovedSymbols := false
+	usesRemainingSymbols := false
+
+	ast.Inspect(astFile, func(n ast.Node) bool {
+		sel, ok := n.(*ast.SelectorExpr)
+		if !ok {
+			return true
+		}
+		id, ok := sel.X.(*ast.Ident)
+		if !ok || id.Name != oldImpAlias {
+			return true
+		}
+
+		if movedSymbols[sel.Sel.Name] {
+			usesMovedSymbols = true
+		} else {
+			usesRemainingSymbols = true
+		}
+		return true
+	})
+
+	if !usesMovedSymbols && !usesRemainingSymbols {
+		if remainingFilesInOldDir == 0 {
+			usesMovedSymbols = true
+		} else {
+			usesRemainingSymbols = true
+		}
+	}
+
+	return usesMovedSymbols, usesRemainingSymbols
+}
+
+func updateFileImportSpecsAndSelectors(
+	astFile *ast.File,
+	oldImpSpec *ast.ImportSpec,
+	oldImpAlias, oldPkgName, newPkgName, newImportPath string,
+	movedSymbols map[string]bool,
+	usesMovedSymbols, usesRemainingSymbols bool,
+) bool {
+	modified := false
+
+	if usesMovedSymbols && !usesRemainingSymbols {
+		oldImpSpec.Path.Value = strconv.Quote(newImportPath)
+		if oldImpSpec.Name != nil && oldImpSpec.Name.Name == oldPkgName {
+			oldImpSpec.Name.Name = newPkgName
+		}
+		modified = true
+	} else if usesMovedSymbols && usesRemainingSymbols {
+		newSpec := &ast.ImportSpec{
+			Path: &ast.BasicLit{
+				Kind:  token.STRING,
+				Value: strconv.Quote(newImportPath),
+			},
+		}
+		addImportSpec(astFile, newSpec)
+		modified = true
+	}
+
+	if usesMovedSymbols && oldPkgName != newPkgName {
+		ast.Inspect(astFile, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok || id.Name != oldImpAlias {
+				return true
+			}
+			if movedSymbols[sel.Sel.Name] {
+				id.Name = newPkgName
+				modified = true
+			}
+			return true
+		})
+	}
+
+	return modified
+}
+
+func addImportSpec(fileAST *ast.File, spec *ast.ImportSpec) {
+	for _, decl := range fileAST.Decls {
+		g, ok := decl.(*ast.GenDecl)
+		if ok && g.Tok == token.IMPORT {
+			g.Specs = append(g.Specs, spec)
+			return
+		}
+	}
+	importDecl := &ast.GenDecl{
+		Tok:   token.IMPORT,
+		Specs: []ast.Spec{spec},
+	}
+	fileAST.Decls = append([]ast.Decl{importDecl}, fileAST.Decls...)
+}
+
 func determinePackageName(dirPath string) string {
-	// Look for existing .go files in dirPath
 	entries, err := os.ReadDir(dirPath)
 	if err == nil {
 		for _, entry := range entries {
@@ -144,10 +397,9 @@ func determinePackageName(dirPath string) string {
 func checkCyclicDependency(moduleRoot string, sourceFiles []string, absDestDir string) error {
 	pkgs, err := LoadModulePackages(moduleRoot)
 	if err != nil {
-		return nil // skip if package graph is incomplete
+		return nil
 	}
 
-	// Determine dest package path
 	relDest, err := filepath.Rel(moduleRoot, absDestDir)
 	if err != nil {
 		return nil
@@ -159,7 +411,6 @@ func checkCyclicDependency(moduleRoot string, sourceFiles []string, absDestDir s
 
 	destPkgPath := filepath.ToSlash(filepath.Join(modName, relDest))
 
-	// Collect imports of the source file
 	sourceImports := make(map[string]bool)
 	for _, srcPath := range sourceFiles {
 		fset := token.NewFileSet()
@@ -172,7 +423,6 @@ func checkCyclicDependency(moduleRoot string, sourceFiles []string, absDestDir s
 		}
 	}
 
-	// Check if any package in sourceImports imports destPkgPath directly or transitively
 	for impPath := range sourceImports {
 		if impPath == destPkgPath {
 			return fmt.Errorf("cyclic dependency detected: moving file to package %q creates an import cycle with %q", destPkgPath, impPath)
@@ -229,7 +479,6 @@ func writeASTWithBuildTags(fset *token.FileSet, fileAST *ast.File, origContent s
 		return err
 	}
 
-	// Read AST formatted file
 	formattedBytes, err := os.ReadFile(destPath) //nolint:gosec
 	if err != nil {
 		return err
@@ -238,26 +487,6 @@ func writeASTWithBuildTags(fset *token.FileSet, fileAST *ast.File, origContent s
 	if len(buildTags) > 0 {
 		finalContent := buf.String() + string(formattedBytes)
 		return os.WriteFile(destPath, []byte(finalContent), 0600)
-	}
-	return nil
-}
-
-func updateModuleImports(moduleRoot string) error {
-	pkgs, err := LoadModulePackages(moduleRoot)
-	if err != nil {
-		return nil
-	}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.GoFiles {
-			if IsVendorPath(file) {
-				continue
-			}
-			fset := token.NewFileSet()
-			astFile, err := parser.ParseFile(fset, file, nil, parser.ParseComments)
-			if err == nil {
-				_ = writeASTToFile(fset, astFile, file)
-			}
-		}
 	}
 	return nil
 }
