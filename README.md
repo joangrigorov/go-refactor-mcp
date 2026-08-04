@@ -30,6 +30,17 @@ When AI agents perform refactoring manually via search-and-replace, they often m
 
 ---
 
+## 🤖 Prompt Snippet for `AGENTS.md` / `CLAUDE.md`
+
+Add this concise snippet to your project's `AGENTS.md` or `CLAUDE.md` to instruct AI agents to use `go-refactor-mcp` tools instead of manual text edits:
+
+> For Go refactoring, always use `go-refactor` MCP tools:
+> - **Moving Go files**: Use `move_file`.
+> - **Renaming or moving packages**: Use `move_directory` (renames package directory, package clauses, and imports module-wide).
+> - **Renaming symbols** (variables, functions, structs, interfaces, package aliases, generic type parameters): Use `rename_symbol`.
+
+---
+
 ## ⚡ Installation
 
 ### 1. Debian / Ubuntu Package (`.deb`)
