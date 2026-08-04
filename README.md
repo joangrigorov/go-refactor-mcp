@@ -32,7 +32,7 @@ When AI agents perform refactoring manually via search-and-replace, they often m
 
 ## ⚡ Installation
 
-### 1. Debian / Ubuntu Package (`.deb`) (Recommended)
+### 1. Debian / Ubuntu Package (`.deb`)
 
 Download and install the `.deb` package directly on Debian, Ubuntu, or derivative distributions:
 
