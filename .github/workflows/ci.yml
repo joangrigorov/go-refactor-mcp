@@ -19,17 +19,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run Poutine
-        uses: boostsecurityio/poutine-action@v1.1.4
+        uses: boostsecurityio/poutine-action@v2
 
   security:
     name: Go Security Audits
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -52,10 +52,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Run actionlint
-        uses: rhysd/actionlint@v1.7.12
+        uses: rhysd/actionlint@v1
 
   lint:
     name: Golangci-lint
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -71,9 +71,7 @@ jobs:
           go-version: 'stable'
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
-        with:
-          install-mode: goinstall
+        uses: golangci/golangci-lint-action@v9
 
   test:
     name: Integration Tests (${{ matrix.os }})
@@ -85,7 +83,7 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Go
         uses: actions/setup-go@v5
