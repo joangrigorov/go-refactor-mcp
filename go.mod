@@ -3,7 +3,6 @@ module github.com/joangrigorov/go-refactor-mcp
 go 1.26
 
 require (
-	github.com/golangci/golangci-lint/v2 v2.12.2
 	github.com/mark3labs/mcp-go v0.8.3
 	golang.org/x/tools v0.44.0
 )
@@ -91,6 +90,7 @@ require (
 	github.com/golangci/dupl v0.0.0-20260401084720-c99c5cf5c202 // indirect
 	github.com/golangci/go-printf-func-name v0.1.1 // indirect
 	github.com/golangci/gofmt v0.0.0-20250106114630-d62b90e6713d // indirect
+	github.com/golangci/golangci-lint/v2 v2.12.2 // indirect
 	github.com/golangci/golines v0.15.0 // indirect
 	github.com/golangci/misspell v0.8.0 // indirect
 	github.com/golangci/plugin-module-register v0.1.2 // indirect
@@ -221,3 +221,5 @@ require (
 	mvdan.cc/gofumpt v0.9.2 // indirect
 	mvdan.cc/unparam v0.0.0-20251027182757-5beb8c8f8f15 // indirect
 )
+
+tool github.com/golangci/golangci-lint/v2/cmd/golangci-lint

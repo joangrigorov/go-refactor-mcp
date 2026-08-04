@@ -73,7 +73,7 @@ jobs:
           cache: true
 
       - name: Run golangci-lint
-        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint run
+        run: go tool golangci-lint run
 
   test:
     name: Integration Tests (${{ matrix.os }})
