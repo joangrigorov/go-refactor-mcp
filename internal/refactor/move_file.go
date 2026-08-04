@@ -300,13 +300,15 @@ func updateSourcePackageFile(path, newImportPath, newPkgName string, movedSymbol
 		return nil
 	}
 
-	newSpec := &ast.ImportSpec{
-		Path: &ast.BasicLit{
-			Kind:  token.STRING,
-			Value: strconv.Quote(newImportPath),
-		},
+	if !hasImport(astFile, newImportPath) {
+		newSpec := &ast.ImportSpec{
+			Path: &ast.BasicLit{
+				Kind:  token.STRING,
+				Value: strconv.Quote(newImportPath),
+			},
+		}
+		addImportSpec(astFile, newSpec)
 	}
-	addImportSpec(astFile, newSpec)
 
 	rewriteUnprefixedSymbols(astFile, newPkgName, movedSymbols)
 
@@ -463,14 +465,16 @@ func updateFileImportSpecsAndSelectors(
 		}
 		modified = true
 	} else if usesMovedSymbols && usesRemainingSymbols {
-		newSpec := &ast.ImportSpec{
-			Path: &ast.BasicLit{
-				Kind:  token.STRING,
-				Value: strconv.Quote(newImportPath),
-			},
+		if !hasImport(astFile, newImportPath) {
+			newSpec := &ast.ImportSpec{
+				Path: &ast.BasicLit{
+					Kind:  token.STRING,
+					Value: strconv.Quote(newImportPath),
+				},
+			}
+			addImportSpec(astFile, newSpec)
+			modified = true
 		}
-		addImportSpec(astFile, newSpec)
-		modified = true
 	}
 
 	if usesMovedSymbols && oldPkgName != newPkgName {
@@ -494,14 +498,43 @@ func updateFileImportSpecsAndSelectors(
 	return modified
 }
 
+func hasImport(fileAST *ast.File, importPath string) bool {
+	for _, imp := range fileAST.Imports {
+		if imp.Path != nil {
+			path, err := strconv.Unquote(imp.Path.Value)
+			if err == nil && path == importPath {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func addImportSpec(fileAST *ast.File, spec *ast.ImportSpec) {
+	if spec == nil || spec.Path == nil {
+		return
+	}
+	pathVal, err := strconv.Unquote(spec.Path.Value)
+	if err == nil && hasImport(fileAST, pathVal) {
+		return // Avoid duplicate imports
+	}
+
 	for _, decl := range fileAST.Decls {
 		g, ok := decl.(*ast.GenDecl)
 		if ok && g.Tok == token.IMPORT {
+			for _, s := range g.Specs {
+				if is, ok := s.(*ast.ImportSpec); ok && is.Path != nil {
+					p, _ := strconv.Unquote(is.Path.Value)
+					if p == pathVal {
+						return
+					}
+				}
+			}
 			g.Specs = append(g.Specs, spec)
 			return
 		}
 	}
+
 	importDecl := &ast.GenDecl{
 		Tok:   token.IMPORT,
 		Specs: []ast.Spec{spec},
