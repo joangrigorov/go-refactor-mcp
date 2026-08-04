@@ -114,6 +114,9 @@ func applyASTRename(pkgs []*packages.Package, targetObj types.Object, opts Renam
 					if sameObject(objDef, targetObj) || sameObject(objUse, targetObj) {
 						id.Name = opts.To
 						modified = true
+					} else if opts.File != "" && isSameFile(pkg.Fset.Position(id.Pos()).Filename, opts.File) && isTypeParamObject(targetObj) {
+						id.Name = opts.To
+						modified = true
 					}
 				} else if opts.File == "" || isSameFile(pkg.Fset.Position(id.Pos()).Filename, opts.File) {
 					id.Name = opts.To
@@ -140,6 +143,14 @@ func sameObject(a, b types.Object) bool {
 		return true
 	}
 	return a.Name() == b.Name() && a.Pos() == b.Pos()
+}
+
+func isTypeParamObject(obj types.Object) bool {
+	if obj == nil {
+		return false
+	}
+	_, ok := obj.Type().(*types.TypeParam)
+	return ok
 }
 
 func isSameFile(f1, f2 string) bool {

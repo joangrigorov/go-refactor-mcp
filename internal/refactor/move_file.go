@@ -133,7 +133,7 @@ func MoveFile(opts MoveFileOptions) error {
 
 	// Update import paths and symbol selectors across workspace files
 	if oldImportPath != "" && newImportPath != "" && oldImportPath != newImportPath {
-		_ = updateWorkspaceMovedFileImports(moduleRoot, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
+		_ = updateWorkspaceMovedFileImports(moduleRoot, sourceDir, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
 	}
 
 	return nil
@@ -215,7 +215,7 @@ func countRemainingGoFiles(dir string, movingFiles []string) int {
 }
 
 func updateWorkspaceMovedFileImports(
-	moduleRoot, oldImportPath, newImportPath, oldPkgName, newPkgName string,
+	moduleRoot, sourceDir, oldImportPath, newImportPath, oldPkgName, newPkgName string,
 	movedSymbols map[string]bool,
 	remainingFilesInOldDir int,
 ) error {
@@ -223,12 +223,12 @@ func updateWorkspaceMovedFileImports(
 		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
 			return err
 		}
-		return processFileMovedImports(path, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
+		return processFileMovedImports(path, sourceDir, oldImportPath, newImportPath, oldPkgName, newPkgName, movedSymbols, remainingFilesInOldDir)
 	})
 }
 
 func processFileMovedImports(
-	path, oldImportPath, newImportPath, oldPkgName, newPkgName string,
+	path, sourceDir, oldImportPath, newImportPath, oldPkgName, newPkgName string,
 	movedSymbols map[string]bool,
 	remainingFilesInOldDir int,
 ) error {
@@ -254,7 +254,11 @@ func processFileMovedImports(
 		}
 	}
 
+	// Handle remaining files in source package directory that referenced moved symbols un-prefixed
 	if oldImpSpec == nil {
+		if filepath.Dir(path) == sourceDir {
+			return updateSourcePackageFile(path, newImportPath, newPkgName, movedSymbols)
+		}
 		return nil
 	}
 
@@ -275,6 +279,139 @@ func processFileMovedImports(
 	}
 
 	return nil
+}
+
+func updateSourcePackageFile(path, newImportPath, newPkgName string, movedSymbols map[string]bool) error {
+	fset := token.NewFileSet()
+	astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
+	if parseErr != nil {
+		return nil
+	}
+
+	usesMovedSymbols := false
+	ast.Inspect(astFile, func(n ast.Node) bool {
+		if id, ok := n.(*ast.Ident); ok && movedSymbols[id.Name] {
+			usesMovedSymbols = true
+		}
+		return true
+	})
+
+	if !usesMovedSymbols {
+		return nil
+	}
+
+	newSpec := &ast.ImportSpec{
+		Path: &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: strconv.Quote(newImportPath),
+		},
+	}
+	addImportSpec(astFile, newSpec)
+
+	rewriteUnprefixedSymbols(astFile, newPkgName, movedSymbols)
+
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, astFile); err == nil {
+		formatted, err := ximports.Process(path, buf.Bytes(), nil)
+		if err == nil {
+			_ = os.WriteFile(path, formatted, 0600)
+		} else {
+			_ = os.WriteFile(path, buf.Bytes(), 0600)
+		}
+	}
+
+	return nil
+}
+
+func rewriteUnprefixedSymbols(fileAST *ast.File, newPkgName string, movedSymbols map[string]bool) {
+	ast.Inspect(fileAST, func(n ast.Node) bool {
+		rewriteUnprefixedNode(n, newPkgName, movedSymbols)
+		return true
+	})
+}
+
+func rewriteUnprefixedNode(n ast.Node, newPkgName string, movedSymbols map[string]bool) {
+	if !rewriteUnprefixedNodePart1(n, newPkgName, movedSymbols) {
+		rewriteUnprefixedNodePart2(n, newPkgName, movedSymbols)
+	}
+}
+
+func rewriteUnprefixedNodePart1(n ast.Node, newPkgName string, movedSymbols map[string]bool) bool {
+	switch parent := n.(type) {
+	case *ast.ReturnStmt:
+		for i, expr := range parent.Results {
+			if id, ok := expr.(*ast.Ident); ok && movedSymbols[id.Name] {
+				parent.Results[i] = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+			}
+		}
+		return true
+	case *ast.CallExpr:
+		if id, ok := parent.Fun.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.Fun = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+		for i, arg := range parent.Args {
+			if id, ok := arg.(*ast.Ident); ok && movedSymbols[id.Name] {
+				parent.Args[i] = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+			}
+		}
+		return true
+	case *ast.AssignStmt:
+		for i, rhs := range parent.Rhs {
+			if id, ok := rhs.(*ast.Ident); ok && movedSymbols[id.Name] {
+				parent.Rhs[i] = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+			}
+		}
+		return true
+	case *ast.ValueSpec:
+		if id, ok := parent.Type.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.Type = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+		for i, val := range parent.Values {
+			if id, ok := val.(*ast.Ident); ok && movedSymbols[id.Name] {
+				parent.Values[i] = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+			}
+		}
+		return true
+	case *ast.Field:
+		if id, ok := parent.Type.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.Type = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+		return true
+	}
+	return false
+}
+
+func rewriteUnprefixedNodePart2(n ast.Node, newPkgName string, movedSymbols map[string]bool) {
+	switch parent := n.(type) {
+	case *ast.StarExpr:
+		if id, ok := parent.X.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.X = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+	case *ast.ArrayType:
+		if id, ok := parent.Elt.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.Elt = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+	case *ast.CompositeLit:
+		if id, ok := parent.Type.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.Type = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+		for i, elt := range parent.Elts {
+			if id, ok := elt.(*ast.Ident); ok && movedSymbols[id.Name] {
+				parent.Elts[i] = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+			}
+		}
+	case *ast.KeyValueExpr:
+		if id, ok := parent.Value.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.Value = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+	case *ast.BinaryExpr:
+		if id, ok := parent.X.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.X = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+		if id, ok := parent.Y.(*ast.Ident); ok && movedSymbols[id.Name] {
+			parent.Y = &ast.SelectorExpr{X: ast.NewIdent(newPkgName), Sel: id}
+		}
+	}
 }
 
 func analyzeSymbolUsages(astFile *ast.File, oldImpAlias string, movedSymbols map[string]bool, remainingFilesInOldDir int) (bool, bool) {
