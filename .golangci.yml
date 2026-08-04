@@ -9,8 +9,6 @@ linters:
     - gocyclo
     - revive
     - govet
-  disable:
-    - typecheck
 
 linters-settings:
   gocyclo:
