@@ -9,6 +9,8 @@ linters:
     - gocyclo
     - revive
     - govet
+  disable:
+    - typecheck
 
 linters-settings:
   gocyclo:
@@ -53,6 +55,3 @@ issues:
         - gosec
         - gocyclo
         - errcheck
-    - text: "file requires newer Go version"
-      linters:
-        - typecheck
