@@ -59,12 +59,12 @@ func MoveDirectory(opts MoveDirOptions) error {
 	newImportPath := filepath.ToSlash(filepath.Join(modName, relNew))
 
 	// Move directory on disk
-	if err := os.MkdirAll(filepath.Dir(absDest), 0750); err != nil {
-		return fmt.Errorf("failed to create parent directory for dest: %w", err)
+	if mkdirErr := os.MkdirAll(filepath.Dir(absDest), 0750); mkdirErr != nil {
+		return fmt.Errorf("failed to create parent directory for dest: %w", mkdirErr)
 	}
 
-	if err := os.Rename(absSource, absDest); err != nil {
-		return fmt.Errorf("failed to move directory from %s to %s: %w", absSource, absDest, err)
+	if renameErr := os.Rename(absSource, absDest); renameErr != nil {
+		return fmt.Errorf("failed to move directory from %s to %s: %w", absSource, absDest, renameErr)
 	}
 
 	// Update package declarations inside moved directory files according to their specific directory level
