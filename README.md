@@ -30,15 +30,66 @@ When AI agents perform refactoring manually via search-and-replace, they often m
 
 ---
 
-## ⚡ Installation & MCP Client Configuration
+## ⚡ Installation
 
-Build the binary locally:
+### 1. Debian / Ubuntu Package (`.deb`)
+
+Download and install the `.deb` package directly on Debian, Ubuntu, or derivative distributions:
+
+```bash
+# Download the latest .deb package
+curl -sSL https://github.com/joangrigorov/go-refactor-mcp/releases/latest/download/go-refactor-mcp_0.1.0_linux_amd64.deb -o go-refactor-mcp.deb
+
+# Install package system-wide
+sudo dpkg -i go-refactor-mcp.deb
+```
+
+This installs `go-refactor-mcp` directly to `/usr/bin/go-refactor-mcp`.
+
+### 2. RPM / APK Linux Packages (RHEL, Fedora, Alpine)
+
+**RHEL / Fedora (`.rpm`):**
+```bash
+sudo rpm -i https://github.com/joangrigorov/go-refactor-mcp/releases/latest/download/go-refactor-mcp_0.1.0_linux_amd64.rpm
+```
+
+**Alpine Linux (`.apk`):**
+```bash
+wget https://github.com/joangrigorov/go-refactor-mcp/releases/latest/download/go-refactor-mcp_0.1.0_linux_amd64.apk
+sudo apk add --allow-untrusted go-refactor-mcp_0.1.0_linux_amd64.apk
+```
+
+### 3. Pre-compiled Binaries (Linux, macOS, Windows)
+
+Download pre-compiled binaries for Linux, macOS (`darwin`), or Windows from [GitHub Releases](https://github.com/joangrigorov/go-refactor-mcp/releases).
+
+```bash
+# Example: Linux amd64
+curl -sSL https://github.com/joangrigorov/go-refactor-mcp/releases/latest/download/go-refactor-mcp_Linux_x86_64.tar.gz | tar -xz
+sudo mv go-refactor-mcp /usr/local/bin/
+```
+
+### 4. `go install`
+
+Install the binary directly using the Go toolchain:
+
+```bash
+go install github.com/joangrigorov/go-refactor-mcp@latest
+```
+
+### 5. Build from Source
+
+Build the binary locally from the source repository:
 
 ```bash
 git clone https://github.com/joangrigorov/go-refactor-mcp.git
 cd go-refactor-mcp
 go build -o go-refactor-mcp main.go
 ```
+
+---
+
+## 🔌 MCP Client Configuration
 
 ### 1. Claude Desktop
 
@@ -48,7 +99,7 @@ Add the server to your `claude_desktop_config.json`:
 {
   "mcpServers": {
     "go-refactor": {
-      "command": "/path/to/go-refactor-mcp/go-refactor-mcp",
+      "command": "go-refactor-mcp",
       "args": []
     }
   }
@@ -61,7 +112,7 @@ Add the server to your `claude_desktop_config.json`:
 2. Click **+ Add New MCP Server**.
 3. Set **Name**: `go-refactor`.
 4. Set **Type**: `stdio`.
-5. Set **Command**: `/path/to/go-refactor-mcp/go-refactor-mcp`.
+5. Set **Command**: `go-refactor-mcp`.
 
 ### 3. agy (Antigravity CLI)
 
@@ -71,7 +122,7 @@ In your `~/.gemini/antigravity-cli/mcp_config.json` or project settings:
 {
   "mcpServers": {
     "go-refactor": {
-      "command": "/path/to/go-refactor-mcp/go-refactor-mcp"
+      "command": "go-refactor-mcp"
     }
   }
 }
@@ -80,7 +131,7 @@ In your `~/.gemini/antigravity-cli/mcp_config.json` or project settings:
 Or mount via CLI:
 
 ```bash
-agy mcp add go-refactor -- /path/to/go-refactor-mcp/go-refactor-mcp
+agy mcp add go-refactor -- go-refactor-mcp
 ```
 
 ### 4. Grok Build
@@ -89,10 +140,8 @@ Add the server configuration to `.grok/config.toml`:
 
 ```toml
 [mcp_servers.go-refactor]
-command = "/path/to/go-refactor-mcp/go-refactor-mcp"
+command = "go-refactor-mcp"
 ```
-
-For standard MCP clients operating over STDIO, point your client configuration directly to the built `/path/to/go-refactor-mcp/go-refactor-mcp` binary.
 
 ---
 
