@@ -75,11 +75,7 @@ Available MCP Tools:
   - rename_symbol       Renames a symbol across the entire module.
   - move_file           Moves a .go file (and _test.go), updating package/imports.
   - move_directory      Moves a package directory and updates module import paths.
-  - extract_function    Extracts a statement range into a new function.
-  - extract_interface   Generates an interface from exported struct methods.
   - implement_interface Generates missing interface method stubs for a struct.
-  - add_struct_tags     Adds/updates struct field tags (CamelCase -> snake_case).
-  - tidy_imports        Organizes and cleans unused imports (goimports).
   - analyze_shadowing   Scans for shadowed variables in files or packages.
 
 For MCP Host Configuration (Claude Desktop, Cursor, agy, Grok), see README.md.

@@ -128,6 +128,20 @@ func ImplementInterface(opts ImplIfaceOptions) error {
 	return os.WriteFile(absPath, buf.Bytes(), 0600)
 }
 
+func isReceiverForStruct(recv *ast.FieldList, structName string) bool {
+	if recv == nil || len(recv.List) == 0 {
+		return false
+	}
+	t := recv.List[0].Type
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	if id, ok := t.(*ast.Ident); ok {
+		return id.Name == structName
+	}
+	return false
+}
+
 func resolveLocalInterface(fset *token.FileSet, astFile *ast.File, interfaceName string) ([]MethodStub, error) {
 	cleanName := interfaceName
 	if idx := strings.LastIndex(cleanName, "."); idx != -1 {
