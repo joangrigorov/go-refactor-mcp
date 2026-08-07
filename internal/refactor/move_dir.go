@@ -14,6 +14,7 @@ import (
 type MoveDirOptions struct {
 	SourceDir string
 	DestDir   string
+	BuildTags string
 }
 
 // MoveDirectory moves a directory and updates all import paths referencing it across the workspace.

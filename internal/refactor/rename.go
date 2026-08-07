@@ -15,12 +15,13 @@ import (
 
 // RenameOptions specifies arguments for symbol renaming.
 type RenameOptions struct {
-	Dir     string // Root directory of module/workspace
-	File    string // Target file path (optional if position is given)
-	Offset  int    // Byte offset or position in file (optional)
-	From    string // Old symbol name
-	To      string // New symbol name
-	Package string // Target package path/name (optional)
+	Dir       string // Root directory of module/workspace
+	File      string // Target file path (optional if position is given)
+	Offset    int    // Byte offset or position in file (optional)
+	From      string // Old symbol name
+	To        string // New symbol name
+	Package   string // Target package path/name (optional)
+	BuildTags string // Optional build tags override (comma-separated)
 }
 
 // RenameSymbol renames a symbol (var, func, struct, interface, field, type param) across the module.
@@ -37,7 +38,8 @@ func RenameSymbol(opts RenameOptions) error {
 		moduleRoot = opts.Dir
 	}
 
-	pkgs, err := LoadModulePackages(moduleRoot)
+	userTags := ParseBuildTags(opts.BuildTags)
+	pkgs, err := LoadModulePackagesWithTags(moduleRoot, userTags)
 	if err != nil {
 		return fmt.Errorf("failed to load workspace packages: %w", err)
 	}

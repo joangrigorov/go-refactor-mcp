@@ -29,6 +29,7 @@ func registerTools(s *server.MCPServer) {
 		mcp.WithString("to", mcp.Required(), mcp.Description("New symbol name")),
 		mcp.WithString("file", mcp.Description("Target file path (optional)")),
 		mcp.WithNumber("offset", mcp.Description("Byte offset of symbol position (optional)")),
+		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(renameTool, handleRenameSymbol)
 
@@ -38,6 +39,7 @@ func registerTools(s *server.MCPServer) {
 		mcp.WithString("source_file", mcp.Required(), mcp.Description("Source .go file path")),
 		mcp.WithString("dest_dir", mcp.Description("Destination directory path (optional if new_name is provided)")),
 		mcp.WithString("new_name", mcp.Description("Optional new filename (e.g. 'saga.go') for renaming in-place or upon move")),
+		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(moveFileTool, handleMoveFile)
 
@@ -46,6 +48,7 @@ func registerTools(s *server.MCPServer) {
 		mcp.WithDescription("Moves an entire package directory and updates all import paths referencing this package across the module."),
 		mcp.WithString("source_dir", mcp.Required(), mcp.Description("Source directory path")),
 		mcp.WithString("dest_dir", mcp.Required(), mcp.Description("Destination directory path")),
+		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(moveDirTool, handleMoveDirectory)
 
@@ -55,6 +58,7 @@ func registerTools(s *server.MCPServer) {
 		mcp.WithString("file_path", mcp.Required(), mcp.Description("Path to file containing struct")),
 		mcp.WithString("struct_name", mcp.Required(), mcp.Description("Name of target struct")),
 		mcp.WithString("interface_name", mcp.Required(), mcp.Description("Interface identifier (e.g., io.Reader or local interface)")),
+		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(implIfaceTool, handleImplementInterface)
 
@@ -62,6 +66,7 @@ func registerTools(s *server.MCPServer) {
 	shadowTool := mcp.NewTool("analyze_shadowing",
 		mcp.WithDescription("Scans a file or package for shadowed variables to avoid logic bugs."),
 		mcp.WithString("target_path", mcp.Required(), mcp.Description("Target file or package directory path")),
+		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(shadowTool, handleAnalyzeShadowing)
 }
@@ -72,13 +77,15 @@ func handleRenameSymbol(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 	to, _ := req.Params.Arguments["to"].(string)
 	file, _ := req.Params.Arguments["file"].(string)
 	offsetFloat, _ := req.Params.Arguments["offset"].(float64)
+	buildTags, _ := req.Params.Arguments["build_tags"].(string)
 
 	opts := refactor.RenameOptions{
-		Dir:    dir,
-		File:   file,
-		From:   from,
-		To:     to,
-		Offset: int(offsetFloat),
+		Dir:       dir,
+		File:      file,
+		From:      from,
+		To:        to,
+		Offset:    int(offsetFloat),
+		BuildTags: buildTags,
 	}
 
 	if err := refactor.RenameSymbol(opts); err != nil {
@@ -91,11 +98,13 @@ func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	src, _ := req.Params.Arguments["source_file"].(string)
 	dest, _ := req.Params.Arguments["dest_dir"].(string)
 	newName, _ := req.Params.Arguments["new_name"].(string)
+	buildTags, _ := req.Params.Arguments["build_tags"].(string)
 
 	opts := refactor.MoveFileOptions{
 		SourceFile: src,
 		DestDir:    dest,
 		NewName:    newName,
+		BuildTags:  buildTags,
 	}
 
 	if err := refactor.MoveFile(opts); err != nil {
@@ -112,10 +121,12 @@ func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	src, _ := req.Params.Arguments["source_dir"].(string)
 	dest, _ := req.Params.Arguments["dest_dir"].(string)
+	buildTags, _ := req.Params.Arguments["build_tags"].(string)
 
 	opts := refactor.MoveDirOptions{
 		SourceDir: src,
 		DestDir:   dest,
+		BuildTags: buildTags,
 	}
 
 	if err := refactor.MoveDirectory(opts); err != nil {
@@ -128,11 +139,13 @@ func handleImplementInterface(_ context.Context, req mcp.CallToolRequest) (*mcp.
 	filePath, _ := req.Params.Arguments["file_path"].(string)
 	structName, _ := req.Params.Arguments["struct_name"].(string)
 	interfaceName, _ := req.Params.Arguments["interface_name"].(string)
+	buildTags, _ := req.Params.Arguments["build_tags"].(string)
 
 	opts := refactor.ImplIfaceOptions{
 		FilePath:      filePath,
 		StructName:    structName,
 		InterfaceName: interfaceName,
+		BuildTags:     buildTags,
 	}
 
 	if err := refactor.ImplementInterface(opts); err != nil {
