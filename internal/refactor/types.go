@@ -39,18 +39,128 @@ func CamelToSnake(s string) string {
 	return res.String()
 }
 
-// LoadModulePackages loads packages starting from dir/module path.
+// Standard OS/Arch build tags to ignore during custom build tag auto-discovery
+var standardGoBuildTags = map[string]bool{
+	"android": true, "darwin": true, "dragonfly": true, "freebsd": true, "illumos": true,
+	"ios": true, "js": true, "linux": true, "netbsd": true, "openbsd": true, "plan9": true,
+	"solaris": true, "windows": true, "aix": true, "wasip1": true, "wasm": true,
+	"386": true, "amd64": true, "arm": true, "arm64": true, "loong64": true,
+	"mips": true, "mipsle": true, "mips64": true, "mips64le": true, "ppc64": true,
+	"ppc64le": true, "riscv64": true, "s390x": true, "cgo": true, "unix": true,
+	"gc": true, "gccgo": true, "ignore": true,
+}
+
+var tagIdentRegex = regexp.MustCompile(`[a-zA-Z0-9_\.]+`)
+
+// ParseBuildTags splits a comma, space, or semicolon separated tag string into a clean slice.
+func ParseBuildTags(input string) []string {
+	if strings.TrimSpace(input) == "" {
+		return nil
+	}
+	raw := strings.FieldsFunc(input, func(r rune) bool {
+		return r == ',' || r == ' ' || r == ';'
+	})
+	var tags []string
+	seen := make(map[string]bool)
+	for _, t := range raw {
+		trimmed := strings.TrimSpace(t)
+		if trimmed != "" && !seen[trimmed] {
+			seen[trimmed] = true
+			tags = append(tags, trimmed)
+		}
+	}
+	return tags
+}
+
+// DiscoverWorkspaceBuildTags scans all non-vendor Go source files under dir for custom //go:build or // +build tags.
+func DiscoverWorkspaceBuildTags(dir string) ([]string, error) {
+	tagSet := make(map[string]bool)
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			name := info.Name()
+			if name == "vendor" || name == ".git" || name == ".github" || name == "node_modules" || (strings.HasPrefix(name, ".") && name != ".") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
+			return nil
+		}
+
+		content, readErr := os.ReadFile(path) // #nosec G304 G122
+		if readErr != nil {
+			return nil
+		}
+
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "package ") {
+				break
+			}
+			if strings.HasPrefix(trimmed, "//go:build") || strings.HasPrefix(trimmed, "// +build") {
+				matches := tagIdentRegex.FindAllString(trimmed, -1)
+				for _, match := range matches {
+					if match == "go" || match == "build" {
+						continue
+					}
+					if !standardGoBuildTags[match] {
+						tagSet[match] = true
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var tags []string
+	for tag := range tagSet {
+		tags = append(tags, tag)
+	}
+	return tags, nil
+}
+
+// LoadModulePackages loads packages starting from dir/module path, auto-discovering build tags.
 func LoadModulePackages(dir string) ([]*packages.Package, error) {
+	return LoadModulePackagesWithTags(dir, nil)
+}
+
+// LoadModulePackagesWithTags loads packages starting from dir/module path using specified or auto-discovered build tags.
+func LoadModulePackagesWithTags(dir string, userTags []string) ([]*packages.Package, error) {
+	moduleRoot, err := FindModuleRoot(dir)
+	if err != nil {
+		moduleRoot = dir
+	}
+
+	tags := userTags
+	if len(tags) == 0 {
+		discovered, discErr := DiscoverWorkspaceBuildTags(moduleRoot)
+		if discErr == nil {
+			tags = discovered
+		}
+	}
+
 	cfg := &packages.Config{
 		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 			packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo |
 			packages.NeedSyntax | packages.NeedDeps,
-		Dir: dir,
+		Dir:   moduleRoot,
 		Tests: true,
 	}
+
+	if len(tags) > 0 {
+		cfg.BuildFlags = []string{"-tags=" + strings.Join(tags, ",")}
+	}
+
 	pkgs, err := packages.Load(cfg, "./...")
 	if err != nil {
-		return nil, fmt.Errorf("failed to load packages in %s: %w", dir, err)
+		return nil, fmt.Errorf("failed to load packages in %s: %w", moduleRoot, err)
 	}
 	return pkgs, nil
 }

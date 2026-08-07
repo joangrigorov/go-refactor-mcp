@@ -22,6 +22,7 @@ type MoveFileOptions struct {
 	SourceFile string
 	DestDir    string
 	NewName    string
+	BuildTags  string
 }
 
 // MoveFile moves SourceFile (and associated _test.go file if present) to DestDir and/or renames it to NewName.
@@ -105,7 +106,7 @@ func MoveFile(opts MoveFileOptions) error {
 	remainingFilesInOldDir := countRemainingGoFiles(sourceDir, filesToMove)
 
 	// 1. Cycle detection check before making changes
-	if cycleErr := checkCyclicDependency(moduleRoot, filesToMove, absDestDir); cycleErr != nil {
+	if cycleErr := checkCyclicDependency(moduleRoot, filesToMove, absDestDir, opts.BuildTags); cycleErr != nil {
 		return cycleErr
 	}
 
@@ -648,8 +649,9 @@ func determinePackageName(dirPath string) string {
 	return clean
 }
 
-func checkCyclicDependency(moduleRoot string, sourceFiles []string, absDestDir string) error {
-	pkgs, pkgErr := LoadModulePackages(moduleRoot)
+func checkCyclicDependency(moduleRoot string, sourceFiles []string, absDestDir string, buildTags string) error {
+	userTags := ParseBuildTags(buildTags)
+	pkgs, pkgErr := LoadModulePackagesWithTags(moduleRoot, userTags)
 	if pkgErr != nil {
 		return nil
 	}

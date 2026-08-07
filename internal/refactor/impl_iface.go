@@ -17,6 +17,7 @@ type ImplIfaceOptions struct {
 	FilePath      string
 	StructName    string
 	InterfaceName string
+	BuildTags     string
 }
 
 // MethodStub represents a method signature to implement.
