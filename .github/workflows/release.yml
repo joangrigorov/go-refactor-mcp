@@ -15,17 +15,17 @@ jobs:
     steps:
       - name: Release Please
         id: release
-        uses: googleapis/release-please-action@d1a8f221d7723166f48a584aebba00ef3f6febec # v4.1.4
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
 
       - name: Checkout code
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4.3.0
         with:
           fetch-depth: 0
 
       - name: Set up Go
         if: ${{ steps.release.outputs.release_created }}
-        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.5.0
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v5.5.0
         with:
           go-version-file: 'go.mod'
           cache: true
@@ -36,7 +36,7 @@ jobs:
 
       - name: Run GoReleaser
         if: ${{ steps.release.outputs.release_created }}
-        uses: goreleaser/goreleaser-action@90a3faa9d0182683851fbfa97ca1a2cb983bfca3 # v6.2.1
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
         with:
           distribution: goreleaser
           version: ~> v2
