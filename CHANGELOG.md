@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.2.1...v0.3.0) (2026-08-07)
+
+
+### Features
+
+* **refactor:** auto-discover build tags and add optional build_tags tool flag ([#14](https://github.com/joangrigorov/go-refactor-mcp/issues/14)) ([03702a2](https://github.com/joangrigorov/go-refactor-mcp/commit/03702a2867bc83cc839b309e4b242654c50000a4))
+
+
+### Bug Fixes
+
+* **deps:** bump the github-actions-dependencies group with 5 updates ([#13](https://github.com/joangrigorov/go-refactor-mcp/issues/13)) ([3189ee7](https://github.com/joangrigorov/go-refactor-mcp/commit/3189ee7bebabc058b8a5ad6126339ede5fb48e87))
+
 ## [0.2.1](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.2.0...v0.2.1) (2026-08-04)
 
 
