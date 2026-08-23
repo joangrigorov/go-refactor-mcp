@@ -72,19 +72,19 @@ func registerTools(s *server.MCPServer) {
 }
 
 func handleRenameSymbol(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	dir, _ := req.Params.Arguments["directory"].(string)
-	from, _ := req.Params.Arguments["from"].(string)
-	to, _ := req.Params.Arguments["to"].(string)
-	file, _ := req.Params.Arguments["file"].(string)
-	offsetFloat, _ := req.Params.Arguments["offset"].(float64)
-	buildTags, _ := req.Params.Arguments["build_tags"].(string)
+	dir := req.GetString("directory", "")
+	from := req.GetString("from", "")
+	to := req.GetString("to", "")
+	file := req.GetString("file", "")
+	offset := req.GetInt("offset", 0)
+	buildTags := req.GetString("build_tags", "")
 
 	opts := refactor.RenameOptions{
 		Dir:       dir,
 		File:      file,
 		From:      from,
 		To:        to,
-		Offset:    int(offsetFloat),
+		Offset:    offset,
 		BuildTags: buildTags,
 	}
 
@@ -95,10 +95,10 @@ func handleRenameSymbol(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 }
 
 func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	src, _ := req.Params.Arguments["source_file"].(string)
-	dest, _ := req.Params.Arguments["dest_dir"].(string)
-	newName, _ := req.Params.Arguments["new_name"].(string)
-	buildTags, _ := req.Params.Arguments["build_tags"].(string)
+	src := req.GetString("source_file", "")
+	dest := req.GetString("dest_dir", "")
+	newName := req.GetString("new_name", "")
+	buildTags := req.GetString("build_tags", "")
 
 	opts := refactor.MoveFileOptions{
 		SourceFile: src,
@@ -119,9 +119,9 @@ func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 }
 
 func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	src, _ := req.Params.Arguments["source_dir"].(string)
-	dest, _ := req.Params.Arguments["dest_dir"].(string)
-	buildTags, _ := req.Params.Arguments["build_tags"].(string)
+	src := req.GetString("source_dir", "")
+	dest := req.GetString("dest_dir", "")
+	buildTags := req.GetString("build_tags", "")
 
 	opts := refactor.MoveDirOptions{
 		SourceDir: src,
@@ -136,10 +136,10 @@ func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 }
 
 func handleImplementInterface(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath, _ := req.Params.Arguments["file_path"].(string)
-	structName, _ := req.Params.Arguments["struct_name"].(string)
-	interfaceName, _ := req.Params.Arguments["interface_name"].(string)
-	buildTags, _ := req.Params.Arguments["build_tags"].(string)
+	filePath := req.GetString("file_path", "")
+	structName := req.GetString("struct_name", "")
+	interfaceName := req.GetString("interface_name", "")
+	buildTags := req.GetString("build_tags", "")
 
 	opts := refactor.ImplIfaceOptions{
 		FilePath:      filePath,
@@ -155,7 +155,7 @@ func handleImplementInterface(_ context.Context, req mcp.CallToolRequest) (*mcp.
 }
 
 func handleAnalyzeShadowing(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	targetPath, _ := req.Params.Arguments["target_path"].(string)
+	targetPath := req.GetString("target_path", "")
 
 	issues, err := refactor.AnalyzeShadowing(targetPath)
 	if err != nil {
