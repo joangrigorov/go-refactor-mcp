@@ -34,8 +34,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v5.5.0
         with:
-          go-version-file: 'go.mod'
-          check-latest: true
+          go-version: '1.26.x'
           cache: true
 
       - name: Run govulncheck
@@ -66,8 +65,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v5.5.0
         with:
-          go-version-file: 'go.mod'
-          check-latest: true
+          go-version: '1.26.x'
           cache: true
 
       - name: Run golangci-lint
@@ -88,8 +86,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v5.5.0
         with:
-          go-version-file: 'go.mod'
-          check-latest: true
+          go-version: '1.26.x'
           cache: true
 
       - name: Run Integration Tests
