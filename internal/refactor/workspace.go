@@ -5,6 +5,8 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 
 	"golang.org/x/mod/modfile"
@@ -285,8 +287,91 @@ func (ws *Workspace) WalkGoFiles(fn func(path string, mod *ModuleInfo) error) er
 	return nil
 }
 
-// LoadPackages loads packages across all workspace modules with specified or auto-discovered build tags.
+// knownGOOS lists operating systems recognized by the Go toolchain.
+var knownGOOS = map[string]bool{
+	"aix":       true,
+	"android":   true,
+	"darwin":    true,
+	"dragonfly": true,
+	"freebsd":   true,
+	"illumos":   true,
+	"ios":       true,
+	"js":        true,
+	"linux":     true,
+	"netbsd":    true,
+	"openbsd":   true,
+	"plan9":     true,
+	"solaris":   true,
+	"wasip1":    true,
+	"windows":   true,
+}
+
+// DiscoverWorkspacePlatforms scans the workspace starting at root for platform-specific Go files differing from runtime.GOOS.
+func DiscoverWorkspacePlatforms(root string) []string {
+	ws, err := FindWorkspace(root)
+	if err != nil {
+		ws = &Workspace{
+			Root:    root,
+			Modules: []*ModuleInfo{{Root: root, Path: ""}},
+		}
+	}
+	return ws.DiscoverWorkspacePlatforms()
+}
+
+// DiscoverWorkspacePlatforms discovers target operating systems present in the workspace that differ from runtime.GOOS.
+func (ws *Workspace) DiscoverWorkspacePlatforms() []string {
+	foreignSet := make(map[string]bool)
+	hostOS := runtime.GOOS
+
+	_ = ws.WalkGoFiles(func(path string, _ *ModuleInfo) error {
+		base := filepath.Base(path)
+		stem := strings.TrimSuffix(base, ".go")
+		stem = strings.TrimSuffix(stem, "_test")
+
+		parts := strings.Split(stem, "_")
+		for _, part := range parts {
+			if knownGOOS[part] && part != hostOS {
+				foreignSet[part] = true
+			}
+		}
+
+		content, err := os.ReadFile(path) // #nosec G304
+		if err != nil {
+			return nil
+		}
+
+		lines := strings.Split(string(content), "\n")
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "package ") {
+				break
+			}
+			if strings.HasPrefix(trimmed, "//go:build") || strings.HasPrefix(trimmed, "// +build") {
+				matches := tagIdentRegex.FindAllString(trimmed, -1)
+				for _, match := range matches {
+					if knownGOOS[match] && match != hostOS {
+						foreignSet[match] = true
+					}
+				}
+			}
+		}
+		return nil
+	})
+
+	var result []string
+	for osName := range foreignSet {
+		result = append(result, osName)
+	}
+	sort.Strings(result)
+	return result
+}
+
+// LoadPackages loads packages across all workspace modules with specified or auto-discovered build tags using host GOOS.
 func (ws *Workspace) LoadPackages(userTags []string) ([]*packages.Package, error) {
+	return ws.loadPackagesWithEnv(userTags, nil)
+}
+
+func (ws *Workspace) loadPackagesWithEnv(userTags []string, extraEnv []string) ([]*packages.Package, error) {
 	tags := userTags
 	if len(tags) == 0 {
 		discovered, discErr := DiscoverWorkspaceBuildTags(ws.Root)
@@ -296,6 +381,10 @@ func (ws *Workspace) LoadPackages(userTags []string) ([]*packages.Package, error
 	}
 
 	sharedFset := token.NewFileSet()
+	env := os.Environ()
+	if len(extraEnv) > 0 {
+		env = append(env, extraEnv...)
+	}
 
 	if ws.IsWork {
 		cfg := &packages.Config{
@@ -305,6 +394,7 @@ func (ws *Workspace) LoadPackages(userTags []string) ([]*packages.Package, error
 			Dir:   ws.Root,
 			Fset:  sharedFset,
 			Tests: true,
+			Env:   env,
 		}
 
 		if len(tags) > 0 {
@@ -341,6 +431,7 @@ func (ws *Workspace) LoadPackages(userTags []string) ([]*packages.Package, error
 			Dir:   mod.Root,
 			Fset:  sharedFset,
 			Tests: true,
+			Env:   env,
 		}
 
 		if len(tags) > 0 {
@@ -355,4 +446,53 @@ func (ws *Workspace) LoadPackages(userTags []string) ([]*packages.Package, error
 	}
 
 	return allPkgs, nil
+}
+
+// LoadAllPlatformPackages loads packages across host and foreign platforms detected in the workspace.
+func (ws *Workspace) LoadAllPlatformPackages(userTags []string) ([]*packages.Package, error) {
+	hostPkgs, err := ws.LoadPackages(userTags)
+	if err != nil {
+		return nil, err
+	}
+	if parseErr := checkPackageParseErrors(hostPkgs, runtime.GOOS); parseErr != nil {
+		return nil, parseErr
+	}
+
+	foreignOSList := ws.DiscoverWorkspacePlatforms()
+	if len(foreignOSList) == 0 {
+		return hostPkgs, nil
+	}
+
+	allPkgs := hostPkgs
+	for _, targetOS := range foreignOSList {
+		foreignPkgs, foreignErr := ws.loadPackagesForOS(userTags, targetOS)
+		if foreignErr != nil {
+			return nil, fmt.Errorf("failed loading packages for platform %s: %w", targetOS, foreignErr)
+		}
+		if parseErr := checkPackageParseErrors(foreignPkgs, targetOS); parseErr != nil {
+			return nil, parseErr
+		}
+		allPkgs = append(allPkgs, foreignPkgs...)
+	}
+
+	return allPkgs, nil
+}
+
+func (ws *Workspace) loadPackagesForOS(userTags []string, targetOS string) ([]*packages.Package, error) {
+	return ws.loadPackagesWithEnv(userTags, []string{"GOOS=" + targetOS})
+}
+
+func checkPackageParseErrors(pkgs []*packages.Package, targetOS string) error {
+	var parseErrs []string
+	packages.Visit(pkgs, nil, func(pkg *packages.Package) {
+		for _, err := range pkg.Errors {
+			if err.Kind == packages.ParseError {
+				parseErrs = append(parseErrs, fmt.Sprintf("%s (%s platform): %s", err.Pos, targetOS, err.Msg))
+			}
+		}
+	})
+	if len(parseErrs) > 0 {
+		return fmt.Errorf("syntax error in platform file: %s", strings.Join(parseErrs, "; "))
+	}
+	return nil
 }

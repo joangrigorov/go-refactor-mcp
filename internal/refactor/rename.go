@@ -47,7 +47,7 @@ func RenameSymbol(opts RenameOptions) error {
 	}
 
 	userTags := ParseBuildTags(opts.BuildTags)
-	pkgs, err := ws.LoadPackages(userTags)
+	pkgs, err := ws.LoadAllPlatformPackages(userTags)
 	if err != nil {
 		return fmt.Errorf("failed to load workspace packages: %w", err)
 	}
@@ -110,10 +110,14 @@ func matchFileAndOffset(fset *token.FileSet, pos token.Pos, fileFilter string, o
 }
 
 func applyASTRename(pkgs []*packages.Package, targetObj types.Object, opts RenameOptions) error {
+	writtenFiles := make(map[string]bool)
 	for _, pkg := range pkgs {
 		for _, syntaxFile := range pkg.Syntax {
 			pos := pkg.Fset.Position(syntaxFile.Pos())
 			if pos.Filename == "" || IsVendorPath(pos.Filename) {
+				continue
+			}
+			if writtenFiles[pos.Filename] {
 				continue
 			}
 
@@ -127,7 +131,8 @@ func applyASTRename(pkgs []*packages.Package, targetObj types.Object, opts Renam
 				if pkg.TypesInfo != nil {
 					objDef := pkg.TypesInfo.Defs[id]
 					objUse := pkg.TypesInfo.Uses[id]
-					if sameObject(objDef, targetObj) || sameObject(objUse, targetObj) {
+					if sameObject(objDef, targetObj) || sameObject(objUse, targetObj) ||
+						sameSymbolAcrossPlatforms(objDef, targetObj) || sameSymbolAcrossPlatforms(objUse, targetObj) {
 						id.Name = opts.To
 						modified = true
 					} else if opts.File != "" && isSameFile(pkg.Fset.Position(id.Pos()).Filename, opts.File) && isTypeParamObject(targetObj) {
@@ -142,6 +147,7 @@ func applyASTRename(pkgs []*packages.Package, targetObj types.Object, opts Renam
 				if err := WriteASTFile(pkg.Fset, syntaxFile, pos.Filename); err != nil {
 					return fmt.Errorf("failed writing refactored file %s: %w", pos.Filename, err)
 				}
+				writtenFiles[pos.Filename] = true
 			}
 		}
 	}
@@ -156,6 +162,57 @@ func sameObject(a, b types.Object) bool {
 		return true
 	}
 	return a.Name() == b.Name() && a.Pos() == b.Pos()
+}
+
+func sameSymbolAcrossPlatforms(a, b types.Object) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	if sameObject(a, b) {
+		return true
+	}
+	if a.Name() != b.Name() {
+		return false
+	}
+	if a.Pkg() == nil || b.Pkg() == nil {
+		return false
+	}
+	if a.Pkg().Path() != b.Pkg().Path() {
+		return false
+	}
+
+	// Case 1: Package-level declarations (functions, types, vars, consts)
+	if a.Parent() != nil && a.Parent() == a.Pkg().Scope() &&
+		b.Parent() != nil && b.Parent() == b.Pkg().Scope() {
+		return true
+	}
+
+	// Case 2: Methods on the same named receiver type
+	sigA, okA := a.Type().(*types.Signature)
+	sigB, okB := b.Type().(*types.Signature)
+	if okA && okB && sigA.Recv() != nil && sigB.Recv() != nil {
+		recvA := receiverTypeName(sigA.Recv())
+		recvB := receiverTypeName(sigB.Recv())
+		if recvA != "" && recvA == recvB {
+			return true
+		}
+	}
+
+	return false
+}
+
+func receiverTypeName(recv *types.Var) string {
+	if recv == nil {
+		return ""
+	}
+	t := recv.Type()
+	if ptr, ok := t.(*types.Pointer); ok {
+		t = ptr.Elem()
+	}
+	if named, ok := t.(*types.Named); ok {
+		return named.Obj().Name()
+	}
+	return ""
 }
 
 func isTypeParamObject(obj types.Object) bool {
