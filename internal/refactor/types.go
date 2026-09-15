@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"unicode"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -22,21 +21,6 @@ type ShadowIssue struct {
 	ShadowedLine int    `json:"shadowed_line"`
 	Scope        string `json:"scope"`
 	Message      string `json:"message"`
-}
-
-// CamelToSnake converts a CamelCase string to snake_case.
-func CamelToSnake(s string) string {
-	var res strings.Builder
-	runes := []rune(s)
-	for i, r := range runes {
-		if i > 0 && unicode.IsUpper(r) {
-			if unicode.IsLower(runes[i-1]) || (i+1 < len(runes) && unicode.IsLower(runes[i+1])) {
-				res.WriteRune('_')
-			}
-		}
-		res.WriteRune(unicode.ToLower(r))
-	}
-	return res.String()
 }
 
 // Standard OS/Arch build tags to ignore during custom build tag auto-discovery
@@ -133,66 +117,36 @@ func LoadModulePackages(dir string) ([]*packages.Package, error) {
 
 // LoadModulePackagesWithTags loads packages starting from dir/module path using specified or auto-discovered build tags.
 func LoadModulePackagesWithTags(dir string, userTags []string) ([]*packages.Package, error) {
-	moduleRoot, err := FindModuleRoot(dir)
+	ws, err := FindWorkspace(dir)
 	if err != nil {
-		moduleRoot = dir
-	}
-
-	tags := userTags
-	if len(tags) == 0 {
-		discovered, discErr := DiscoverWorkspaceBuildTags(moduleRoot)
-		if discErr == nil {
-			tags = discovered
+		ws = &Workspace{
+			Root:    dir,
+			Modules: []*ModuleInfo{{Root: dir, Path: ""}},
 		}
 	}
-
-	cfg := &packages.Config{
-		Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
-			packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo |
-			packages.NeedSyntax | packages.NeedDeps,
-		Dir:   moduleRoot,
-		Tests: true,
-	}
-
-	if len(tags) > 0 {
-		cfg.BuildFlags = []string{"-tags=" + strings.Join(tags, ",")}
-	}
-
-	pkgs, err := packages.Load(cfg, "./...")
-	if err != nil {
-		return nil, fmt.Errorf("failed to load packages in %s: %w", moduleRoot, err)
-	}
-	return pkgs, nil
+	return ws.LoadPackages(userTags)
 }
 
 // FindModuleRoot finds the directory containing go.mod starting from startDir.
 func FindModuleRoot(startDir string) (string, error) {
-	curr := startDir
-	for {
-		if _, err := os.Stat(filepath.Join(curr, "go.mod")); err == nil {
-			return curr, nil
-		}
-		parent := filepath.Dir(curr)
-		if parent == curr {
-			break
-		}
-		curr = parent
+	ws, err := FindWorkspace(startDir)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("go.mod not found starting from %s", startDir)
+	mod, err := ws.ModuleForPath(startDir)
+	if err != nil {
+		return ws.Root, nil
+	}
+	return mod.Root, nil
 }
 
 // GetModuleName reads module path from go.mod in moduleRoot.
 func GetModuleName(moduleRoot string) (string, error) {
-	content, err := os.ReadFile(filepath.Join(moduleRoot, "go.mod")) // #nosec G304
+	info, err := parseModuleInfo(moduleRoot)
 	if err != nil {
 		return "", err
 	}
-	re := regexp.MustCompile(`(?m)^module\s+([^\s]+)`)
-	matches := re.FindStringSubmatch(string(content))
-	if len(matches) < 2 {
-		return "", fmt.Errorf("could not parse module name from go.mod")
-	}
-	return matches[1], nil
+	return info.Path, nil
 }
 
 // IsVendorPath checks if a path resides inside vendor folder.

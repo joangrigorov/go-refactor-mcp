@@ -2,6 +2,7 @@ package refactor
 
 import (
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -37,27 +38,20 @@ func MoveDirectory(opts MoveDirOptions) error {
 		return fmt.Errorf("source directory %s does not exist or is not a directory", absSource)
 	}
 
-	moduleRoot, err := FindModuleRoot(absSource)
+	ws, err := FindWorkspace(absSource)
 	if err != nil {
-		moduleRoot = filepath.Dir(absSource)
+		return fmt.Errorf("failed finding workspace: %w", err)
 	}
 
-	modName, err := GetModuleName(moduleRoot)
+	oldImportPath, err := ws.CalculateImportPath(absSource)
 	if err != nil {
-		return fmt.Errorf("could not determine module name: %w", err)
+		return fmt.Errorf("could not determine old import path: %w", err)
 	}
 
-	relOld, err := filepath.Rel(moduleRoot, absSource)
+	newImportPath, err := ws.CalculateImportPath(absDest)
 	if err != nil {
-		return fmt.Errorf("failed to get relative path for source dir: %w", err)
+		return fmt.Errorf("could not determine new import path: %w", err)
 	}
-	relNew, err := filepath.Rel(moduleRoot, absDest)
-	if err != nil {
-		return fmt.Errorf("failed to get relative path for dest dir: %w", err)
-	}
-
-	oldImportPath := filepath.ToSlash(filepath.Join(modName, relOld))
-	newImportPath := filepath.ToSlash(filepath.Join(modName, relNew))
 
 	if err := moveDirOnDisk(absSource, absDest); err != nil {
 		return err
@@ -67,7 +61,7 @@ func MoveDirectory(opts MoveDirOptions) error {
 		return err
 	}
 
-	return updateWorkspaceImports(moduleRoot, oldImportPath, newImportPath)
+	return updateWorkspaceImports(ws, oldImportPath, newImportPath)
 }
 
 func moveDirOnDisk(absSource, absDest string) error {
@@ -117,14 +111,10 @@ func updateMovedPackageDeclarations(absDest string) error {
 		fset := token.NewFileSet()
 		astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if parseErr == nil && astFile.Name != nil {
-			dirPkgName := cleanDirPackageName(filepath.Dir(path))
-			targetPkgName := dirPkgName
-			if strings.HasSuffix(astFile.Name.Name, "_test") {
-				targetPkgName = dirPkgName + "_test"
-			}
+			targetPkgName := targetPackageNameForMovedFile(astFile, filepath.Dir(path))
 			if astFile.Name.Name != targetPkgName {
 				astFile.Name.Name = targetPkgName
-				_ = writeASTToFile(fset, astFile, path)
+				_ = WriteASTFile(fset, astFile, path)
 			}
 		}
 		return nil
@@ -135,12 +125,26 @@ func updateMovedPackageDeclarations(absDest string) error {
 	return nil
 }
 
-func updateWorkspaceImports(moduleRoot, oldImportPath, newImportPath string) error {
-	err := filepath.Walk(moduleRoot, func(path string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
-			return walkErr
-		}
+func targetPackageNameForMovedFile(astFile *ast.File, dirPath string) string {
+	if astFile.Name == nil {
+		return CleanPackageIdentifier(filepath.Base(dirPath))
+	}
+	if astFile.Name.Name == "main" {
+		return "main"
+	}
+	if astFile.Name.Name == "main_test" {
+		return "main_test"
+	}
 
+	dirPkgName := CleanPackageIdentifier(filepath.Base(dirPath))
+	if strings.HasSuffix(astFile.Name.Name, "_test") {
+		return dirPkgName + "_test"
+	}
+	return dirPkgName
+}
+
+func updateWorkspaceImports(ws *Workspace, oldImportPath, newImportPath string) error {
+	err := ws.WalkGoFiles(func(path string, _ *ModuleInfo) error {
 		fset := token.NewFileSet()
 		astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if parseErr != nil {
@@ -158,24 +162,14 @@ func updateWorkspaceImports(moduleRoot, oldImportPath, newImportPath string) err
 		}
 
 		if modified {
-			_ = writeASTToFile(fset, astFile, path)
+			_ = WriteASTFile(fset, astFile, path)
 		}
 		return nil
 	})
 
 	if err != nil {
-		return fmt.Errorf("failed updating module import paths: %w", err)
+		return fmt.Errorf("failed updating workspace import paths: %w", err)
 	}
 
 	return nil
-}
-
-func cleanDirPackageName(dirPath string) string {
-	base := filepath.Base(dirPath)
-	clean := strings.ReplaceAll(base, "-", "_")
-	clean = strings.ReplaceAll(clean, ".", "_")
-	if clean == "" || clean == "." {
-		return "main"
-	}
-	return clean
 }
