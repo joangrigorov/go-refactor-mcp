@@ -3,7 +3,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -52,24 +51,6 @@ func registerTools(s *server.MCPServer) {
 		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(moveDirTool, handleMoveDirectory)
-
-	// 4. implement_interface
-	implIfaceTool := mcp.NewTool("implement_interface",
-		mcp.WithDescription("Generates missing method stubs on a struct for a specified interface."),
-		mcp.WithString("file_path", mcp.Required(), mcp.Description("Path to file containing struct")),
-		mcp.WithString("struct_name", mcp.Required(), mcp.Description("Name of target struct")),
-		mcp.WithString("interface_name", mcp.Required(), mcp.Description("Interface identifier (e.g., io.Reader or local interface)")),
-		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
-	)
-	s.AddTool(implIfaceTool, handleImplementInterface)
-
-	// 5. analyze_shadowing
-	shadowTool := mcp.NewTool("analyze_shadowing",
-		mcp.WithDescription("Scans a file or package for shadowed variables to avoid logic bugs."),
-		mcp.WithString("target_path", mcp.Required(), mcp.Description("Target file or package directory path")),
-		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
-	)
-	s.AddTool(shadowTool, handleAnalyzeShadowing)
 }
 
 func handleRenameSymbol(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -161,58 +142,4 @@ func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 		return mcp.NewToolResultError(fmt.Sprintf("move_directory failed: %v", err)), nil
 	}
 	return mcp.NewToolResultText(fmt.Sprintf("Successfully moved directory '%s' to '%s'", src, dest)), nil
-}
-
-func handleImplementInterface(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath := strings.TrimSpace(req.GetString("file_path", ""))
-	structName := strings.TrimSpace(req.GetString("struct_name", ""))
-	interfaceName := strings.TrimSpace(req.GetString("interface_name", ""))
-	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
-
-	if filePath == "" {
-		return mcp.NewToolResultError("implement_interface: argument 'file_path' is required. Specify the path to the Go file containing the struct"), nil
-	}
-	if structName == "" {
-		return mcp.NewToolResultError("implement_interface: argument 'struct_name' is required. Specify the name of the target struct"), nil
-	}
-	if interfaceName == "" {
-		return mcp.NewToolResultError("implement_interface: argument 'interface_name' is required (e.g. 'io.Reader' or a local interface name)"), nil
-	}
-
-	opts := refactor.ImplIfaceOptions{
-		FilePath:      filePath,
-		StructName:    structName,
-		InterfaceName: interfaceName,
-		BuildTags:     buildTags,
-	}
-
-	if err := refactor.ImplementInterface(opts); err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("implement_interface failed: %v", err)), nil
-	}
-	return mcp.NewToolResultText(fmt.Sprintf("Successfully generated method stubs for interface '%s' on struct '%s'", interfaceName, structName)), nil
-}
-
-func handleAnalyzeShadowing(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	targetPath := strings.TrimSpace(req.GetString("target_path", ""))
-	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
-
-	if targetPath == "" {
-		return mcp.NewToolResultError("analyze_shadowing: argument 'target_path' is required. Specify the path to a Go file or package directory"), nil
-	}
-
-	issues, err := refactor.AnalyzeShadowing(targetPath, buildTags)
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("analyze_shadowing failed: %v", err)), nil
-	}
-
-	if len(issues) == 0 {
-		return mcp.NewToolResultText("No shadowed variables detected."), nil
-	}
-
-	jsonBytes, err := json.MarshalIndent(issues, "", "  ")
-	if err != nil {
-		return mcp.NewToolResultError(fmt.Sprintf("failed encoding shadowing report: %v", err)), nil
-	}
-
-	return mcp.NewToolResultText(string(jsonBytes)), nil
 }
