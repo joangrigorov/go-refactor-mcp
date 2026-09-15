@@ -7,9 +7,12 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
-	"os"
+	"go/types"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"golang.org/x/tools/go/packages"
 )
 
 // ImplIfaceOptions specifies arguments for interface method stub generation.
@@ -59,44 +62,10 @@ func ImplementInterface(opts ImplIfaceOptions) error {
 		return fmt.Errorf("failed to parse file: %w", err)
 	}
 
-	// 1. Resolve methods needed for interface
-	stubs, ok := standardInterfaces[opts.InterfaceName]
-	if !ok {
-		// Try resolving locally in astFile
-		localStubs, err := resolveLocalInterface(fset, astFile, opts.InterfaceName)
-		if err == nil && len(localStubs) > 0 {
-			stubs = localStubs
-		} else {
-			// Try resolving in workspace module
-			wsStubs, err := resolveInterfaceInWorkspace(filepath.Dir(absPath), opts.InterfaceName)
-			if err == nil && len(wsStubs) > 0 {
-				stubs = wsStubs
-			} else {
-				// Fallback stub if interface cannot be found
-				cleanName := opts.InterfaceName
-				if idx := strings.LastIndex(cleanName, "."); idx != -1 {
-					cleanName = cleanName[idx+1:]
-				}
-				stubs = []MethodStub{
-					{Name: "Handle" + cleanName, Params: "", Results: "error"},
-				}
-			}
-		}
-	}
+	stubs := resolveStubs(absPath, fset, astFile, opts.InterfaceName)
 
-	// 2. Identify existing methods on StructName
-	existingMethods := make(map[string]bool)
-	for _, decl := range astFile.Decls {
-		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Recv == nil || fn.Name == nil {
-			continue
-		}
-		if isReceiverForStruct(fn.Recv, opts.StructName) {
-			existingMethods[fn.Name.Name] = true
-		}
-	}
+	existingMethods := findExistingMethods(astFile, opts.StructName)
 
-	// 3. Generate missing method declarations
 	modified := false
 	receiverVar := strings.ToLower(string(opts.StructName[0]))
 
@@ -105,13 +74,17 @@ func ImplementInterface(opts ImplIfaceOptions) error {
 			continue // Already implemented (Idempotent)
 		}
 
-		stubCode := fmt.Sprintf("\nfunc (%s *%s) %s(%s) %s {\n\tpanic(\"unimplemented\")\n}\n",
-			receiverVar, opts.StructName, stub.Name, stub.Params, stub.Results)
+		returnTypeStr := stub.Results
+		if returnTypeStr != "" && !strings.HasPrefix(returnTypeStr, " ") {
+			returnTypeStr = " " + returnTypeStr
+		}
 
-		// Parse stub code into AST decl
+		stubCode := fmt.Sprintf("\nfunc (%s *%s) %s(%s)%s {\n\tpanic(\"unimplemented\")\n}\n",
+			receiverVar, opts.StructName, stub.Name, stub.Params, returnTypeStr)
+
 		stubFset := token.NewFileSet()
-		stubAST, err := parser.ParseFile(stubFset, "", "package p\n"+stubCode, parser.ParseComments)
-		if err == nil && len(stubAST.Decls) > 0 {
+		stubAST, parseErr := parser.ParseFile(stubFset, "", "package p\n"+stubCode, parser.ParseComments)
+		if parseErr == nil && len(stubAST.Decls) > 0 {
 			astFile.Decls = append(astFile.Decls, stubAST.Decls[0])
 			modified = true
 		}
@@ -121,12 +94,155 @@ func ImplementInterface(opts ImplIfaceOptions) error {
 		return nil // Nothing to add, idempotent success
 	}
 
-	var buf bytes.Buffer
-	if err := format.Node(&buf, fset, astFile); err != nil {
-		return fmt.Errorf("failed formatting ast: %w", err)
+	return WriteASTFile(fset, astFile, absPath)
+}
+
+func resolveStubs(absPath string, fset *token.FileSet, astFile *ast.File, interfaceName string) []MethodStub {
+	if stubs, ok := standardInterfaces[interfaceName]; ok {
+		return stubs
 	}
 
-	return os.WriteFile(absPath, buf.Bytes(), 0600)
+	if localStubs, err := resolveLocalInterface(fset, astFile, interfaceName); err == nil && len(localStubs) > 0 {
+		return localStubs
+	}
+
+	if dynStubs := resolveInterfaceDynamic(absPath, astFile, interfaceName); len(dynStubs) > 0 {
+		return dynStubs
+	}
+
+	if wsStubs, err := resolveInterfaceInWorkspace(filepath.Dir(absPath), interfaceName); err == nil && len(wsStubs) > 0 {
+		return wsStubs
+	}
+
+	cleanName := interfaceName
+	if idx := strings.LastIndex(cleanName, "."); idx != -1 {
+		cleanName = cleanName[idx+1:]
+	}
+	return []MethodStub{
+		{Name: "Handle" + cleanName, Params: "", Results: "error"},
+	}
+}
+
+func findExistingMethods(astFile *ast.File, structName string) map[string]bool {
+	existingMethods := make(map[string]bool)
+	for _, decl := range astFile.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || fn.Name == nil {
+			continue
+		}
+		if isReceiverForStruct(fn.Recv, structName) {
+			existingMethods[fn.Name.Name] = true
+		}
+	}
+	return existingMethods
+}
+
+func resolveInterfaceDynamic(absPath string, astFile *ast.File, interfaceName string) []MethodStub {
+	lastDot := strings.LastIndex(interfaceName, ".")
+	if lastDot == -1 {
+		return nil
+	}
+
+	pkgPart := interfaceName[:lastDot]
+	ifaceName := interfaceName[lastDot+1:]
+
+	pkgPath := pkgPart
+	if !strings.Contains(pkgPart, "/") {
+		for _, imp := range astFile.Imports {
+			importPath, _ := strconv.Unquote(imp.Path.Value)
+			alias := filepath.Base(importPath)
+			if imp.Name != nil && imp.Name.Name != "" {
+				alias = imp.Name.Name
+			}
+			if alias == pkgPart {
+				pkgPath = importPath
+				break
+			}
+		}
+	}
+
+	cfg := &packages.Config{
+		Mode: packages.NeedTypes | packages.NeedImports,
+		Dir:  filepath.Dir(absPath),
+	}
+
+	pkgs, err := packages.Load(cfg, pkgPath)
+	if err != nil || len(pkgs) == 0 || pkgs[0].Types == nil {
+		return nil
+	}
+
+	obj := pkgs[0].Types.Scope().Lookup(ifaceName)
+	if obj == nil {
+		return nil
+	}
+
+	itype, ok := obj.Type().Underlying().(*types.Interface)
+	if !ok {
+		return nil
+	}
+
+	return extractInterfaceStubsFromType(itype)
+}
+
+func extractInterfaceStubsFromType(itype *types.Interface) []MethodStub {
+	var stubs []MethodStub
+	qualifier := func(pkg *types.Package) string {
+		if pkg == nil {
+			return ""
+		}
+		return pkg.Name()
+	}
+
+	for i := 0; i < itype.NumMethods(); i++ {
+		m := itype.Method(i)
+		sig, ok := m.Type().(*types.Signature)
+		if !ok {
+			continue
+		}
+
+		params := formatTuple(sig.Params(), sig.Variadic(), qualifier)
+		results := formatResultsTuple(sig.Results(), qualifier)
+
+		stubs = append(stubs, MethodStub{
+			Name:    m.Name(),
+			Params:  params,
+			Results: results,
+		})
+	}
+	return stubs
+}
+
+func formatTuple(tuple *types.Tuple, variadic bool, qf types.Qualifier) string {
+	if tuple == nil || tuple.Len() == 0 {
+		return ""
+	}
+	var parts []string
+	for i := 0; i < tuple.Len(); i++ {
+		v := tuple.At(i)
+		typeStr := types.TypeString(v.Type(), qf)
+		if variadic && i == tuple.Len()-1 {
+			if slice, ok := v.Type().(*types.Slice); ok {
+				typeStr = "..." + types.TypeString(slice.Elem(), qf)
+			}
+		}
+		if v.Name() != "" {
+			parts = append(parts, v.Name()+" "+typeStr)
+		} else {
+			parts = append(parts, typeStr)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func formatResultsTuple(tuple *types.Tuple, qf types.Qualifier) string {
+	if tuple == nil || tuple.Len() == 0 {
+		return ""
+	}
+	joined := formatTuple(tuple, false, qf)
+	if tuple.Len() > 1 || (tuple.Len() == 1 && tuple.At(0).Name() != "") {
+		return "(" + joined + ")"
+	}
+	return joined
 }
 
 func isReceiverForStruct(recv *ast.FieldList, structName string) bool {
@@ -189,9 +305,12 @@ func resolveLocalInterface(fset *token.FileSet, astFile *ast.File, interfaceName
 }
 
 func resolveInterfaceInWorkspace(dirPath string, interfaceName string) ([]MethodStub, error) {
-	moduleRoot, err := FindModuleRoot(dirPath)
+	ws, err := FindWorkspace(dirPath)
 	if err != nil {
-		moduleRoot = dirPath
+		ws = &Workspace{
+			Root:    dirPath,
+			Modules: []*ModuleInfo{{Root: dirPath, Path: ""}},
+		}
 	}
 
 	cleanName := interfaceName
@@ -200,10 +319,7 @@ func resolveInterfaceInWorkspace(dirPath string, interfaceName string) ([]Method
 	}
 
 	var foundStubs []MethodStub
-	_ = filepath.Walk(moduleRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") || IsVendorPath(path) {
-			return err
-		}
+	_ = ws.WalkGoFiles(func(path string, _ *ModuleInfo) error {
 		fset := token.NewFileSet()
 		fileAST, parseErr := parser.ParseFile(fset, path, nil, parser.ParseComments)
 		if parseErr != nil {

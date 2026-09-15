@@ -1,13 +1,10 @@
 package refactor
 
 import (
-	"bytes"
 	"fmt"
 	"go/ast"
-	"go/format"
 	"go/token"
 	"go/types"
-	"os"
 	"path/filepath"
 
 	"golang.org/x/tools/go/packages"
@@ -33,18 +30,24 @@ func RenameSymbol(opts RenameOptions) error {
 		return nil // Idempotent: already has desired name
 	}
 
-	moduleRoot, err := FindModuleRoot(opts.Dir)
+	ws, err := FindWorkspace(opts.Dir)
 	if err != nil {
-		moduleRoot = opts.Dir
+		ws = &Workspace{
+			Root:    opts.Dir,
+			Modules: []*ModuleInfo{{Root: opts.Dir, Path: ""}},
+		}
 	}
 
 	userTags := ParseBuildTags(opts.BuildTags)
-	pkgs, err := LoadModulePackagesWithTags(moduleRoot, userTags)
+	pkgs, err := ws.LoadPackages(userTags)
 	if err != nil {
 		return fmt.Errorf("failed to load workspace packages: %w", err)
 	}
 
 	targetObj := findTargetSymbol(pkgs, opts)
+	if targetObj == nil {
+		return fmt.Errorf("symbol %q not found in workspace", opts.From)
+	}
 
 	return applyASTRename(pkgs, targetObj, opts)
 }
@@ -110,7 +113,7 @@ func applyASTRename(pkgs []*packages.Package, targetObj types.Object, opts Renam
 					return true
 				}
 
-				if targetObj != nil && pkg.TypesInfo != nil {
+				if pkg.TypesInfo != nil {
 					objDef := pkg.TypesInfo.Defs[id]
 					objUse := pkg.TypesInfo.Uses[id]
 					if sameObject(objDef, targetObj) || sameObject(objUse, targetObj) {
@@ -120,15 +123,12 @@ func applyASTRename(pkgs []*packages.Package, targetObj types.Object, opts Renam
 						id.Name = opts.To
 						modified = true
 					}
-				} else if opts.File == "" || isSameFile(pkg.Fset.Position(id.Pos()).Filename, opts.File) {
-					id.Name = opts.To
-					modified = true
 				}
 				return true
 			})
 
 			if modified {
-				if err := writeASTToFile(pkg.Fset, syntaxFile, pos.Filename); err != nil {
+				if err := WriteASTFile(pkg.Fset, syntaxFile, pos.Filename); err != nil {
 					return fmt.Errorf("failed writing refactored file %s: %w", pos.Filename, err)
 				}
 			}
@@ -162,12 +162,4 @@ func isSameFile(f1, f2 string) bool {
 		return f1 == f2
 	}
 	return a1 == a2
-}
-
-func writeASTToFile(fset *token.FileSet, file *ast.File, filename string) error {
-	var buf bytes.Buffer
-	if err := format.Node(&buf, fset, file); err != nil {
-		return err
-	}
-	return os.WriteFile(filename, buf.Bytes(), 0600)
 }
