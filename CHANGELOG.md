@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.3.0...v0.4.0) (2026-09-15)
+
+
+### Features
+
+* **refactor:** add universal interface resolution and cross-platform symbol renaming ([#22](https://github.com/joangrigorov/go-refactor-mcp/issues/22)) ([5db8f82](https://github.com/joangrigorov/go-refactor-mcp/commit/5db8f829a1baa0a17c0f659958b1f708878c0c02))
+* **workspace:** support go.work, monorepos, and import collision auto-aliasing ([#20](https://github.com/joangrigorov/go-refactor-mcp/issues/20)) ([061873a](https://github.com/joangrigorov/go-refactor-mcp/commit/061873a5e7f72e61f75359e145e46e4438dad7ea))
+
+
+### Bug Fixes
+
+* **deps:** bump github.com/mark3labs/mcp-go in the go-dependencies group ([#18](https://github.com/joangrigorov/go-refactor-mcp/issues/18)) ([880332d](https://github.com/joangrigorov/go-refactor-mcp/commit/880332d1012f1cbf242ae4a127b1ad9caf49723b))
+* **deps:** bump golang.org/x/tools from 0.49.0 to 0.50.0 in the go-dependencies group ([#23](https://github.com/joangrigorov/go-refactor-mcp/issues/23)) ([8e71371](https://github.com/joangrigorov/go-refactor-mcp/commit/8e71371a929c1bb0555f6cc4fb952ef561833fee))
+* **deps:** bump the go-dependencies group across 1 directory with 2 updates ([#16](https://github.com/joangrigorov/go-refactor-mcp/issues/16)) ([9f09b06](https://github.com/joangrigorov/go-refactor-mcp/commit/9f09b06dd6ef572056e66c27f7d59bdac616f09b))
+* **server:** eliminate silent failures, improve error actionability, and add MCP integration tests ([#21](https://github.com/joangrigorov/go-refactor-mcp/issues/21)) ([703335c](https://github.com/joangrigorov/go-refactor-mcp/commit/703335c222aed0e84a83ae3afb996752f3c3e920))
+
 ## [0.3.0](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.2.1...v0.3.0) (2026-08-07)
 
 
