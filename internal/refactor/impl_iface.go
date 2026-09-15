@@ -51,6 +51,16 @@ var standardInterfaces = map[string][]MethodStub{
 
 // ImplementInterface generates missing method stubs for InterfaceName on StructName.
 func ImplementInterface(opts ImplIfaceOptions) error {
+	cleanStruct := strings.TrimSpace(opts.StructName)
+	if cleanStruct == "" {
+		return fmt.Errorf("argument 'struct_name' cannot be empty")
+	}
+
+	cleanIface := strings.TrimSpace(opts.InterfaceName)
+	if cleanIface == "" {
+		return fmt.Errorf("argument 'interface_name' cannot be empty")
+	}
+
 	absPath, err := filepath.Abs(opts.FilePath)
 	if err != nil {
 		return fmt.Errorf("invalid file path: %w", err)
@@ -62,12 +72,30 @@ func ImplementInterface(opts ImplIfaceOptions) error {
 		return fmt.Errorf("failed to parse file: %w", err)
 	}
 
-	stubs := resolveStubs(absPath, fset, astFile, opts.InterfaceName)
+	availableStructs := findAvailableStructs(astFile)
+	foundStruct := false
+	for _, s := range availableStructs {
+		if s == cleanStruct {
+			foundStruct = true
+			break
+		}
+	}
+	if !foundStruct {
+		if len(availableStructs) > 0 {
+			return fmt.Errorf("struct %q not found in %s; available structs: [%s]", cleanStruct, filepath.Base(absPath), strings.Join(availableStructs, ", "))
+		}
+		return fmt.Errorf("struct %q not found in %s; no structs declared in this file", cleanStruct, filepath.Base(absPath))
+	}
 
-	existingMethods := findExistingMethods(astFile, opts.StructName)
+	stubs, err := resolveStubs(absPath, fset, astFile, cleanIface)
+	if err != nil {
+		return err
+	}
+
+	existingMethods := findExistingMethods(astFile, cleanStruct)
 
 	modified := false
-	receiverVar := strings.ToLower(string(opts.StructName[0]))
+	receiverVar := strings.ToLower(string(cleanStruct[0]))
 
 	for _, stub := range stubs {
 		if existingMethods[stub.Name] {
@@ -80,7 +108,7 @@ func ImplementInterface(opts ImplIfaceOptions) error {
 		}
 
 		stubCode := fmt.Sprintf("\nfunc (%s *%s) %s(%s)%s {\n\tpanic(\"unimplemented\")\n}\n",
-			receiverVar, opts.StructName, stub.Name, stub.Params, returnTypeStr)
+			receiverVar, cleanStruct, stub.Name, stub.Params, returnTypeStr)
 
 		stubFset := token.NewFileSet()
 		stubAST, parseErr := parser.ParseFile(stubFset, "", "package p\n"+stubCode, parser.ParseComments)
@@ -94,33 +122,47 @@ func ImplementInterface(opts ImplIfaceOptions) error {
 		return nil // Nothing to add, idempotent success
 	}
 
-	return WriteASTFile(fset, astFile, absPath)
+	return WriteASTFileWithImports(fset, astFile, absPath)
 }
 
-func resolveStubs(absPath string, fset *token.FileSet, astFile *ast.File, interfaceName string) []MethodStub {
+func findAvailableStructs(astFile *ast.File) []string {
+	var structs []string
+	for _, decl := range astFile.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			if _, isStruct := typeSpec.Type.(*ast.StructType); isStruct {
+				structs = append(structs, typeSpec.Name.Name)
+			}
+		}
+	}
+	return structs
+}
+
+func resolveStubs(absPath string, fset *token.FileSet, astFile *ast.File, interfaceName string) ([]MethodStub, error) {
 	if stubs, ok := standardInterfaces[interfaceName]; ok {
-		return stubs
+		return stubs, nil
 	}
 
 	if localStubs, err := resolveLocalInterface(fset, astFile, interfaceName); err == nil && len(localStubs) > 0 {
-		return localStubs
+		return localStubs, nil
 	}
 
 	if dynStubs := resolveInterfaceDynamic(absPath, astFile, interfaceName); len(dynStubs) > 0 {
-		return dynStubs
+		return dynStubs, nil
 	}
 
 	if wsStubs, err := resolveInterfaceInWorkspace(filepath.Dir(absPath), interfaceName); err == nil && len(wsStubs) > 0 {
-		return wsStubs
+		return wsStubs, nil
 	}
 
-	cleanName := interfaceName
-	if idx := strings.LastIndex(cleanName, "."); idx != -1 {
-		cleanName = cleanName[idx+1:]
-	}
-	return []MethodStub{
-		{Name: "Handle" + cleanName, Params: "", Results: "error"},
-	}
+	return nil, fmt.Errorf("interface %q could not be resolved from standard library, current file, or workspace packages. Check spelling or package imports", interfaceName)
 }
 
 func findExistingMethods(astFile *ast.File, structName string) map[string]bool {

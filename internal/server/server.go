@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/joangrigorov/go-refactor-mcp/internal/refactor"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -72,12 +73,22 @@ func registerTools(s *server.MCPServer) {
 }
 
 func handleRenameSymbol(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	dir := req.GetString("directory", "")
-	from := req.GetString("from", "")
-	to := req.GetString("to", "")
-	file := req.GetString("file", "")
+	dir := strings.TrimSpace(req.GetString("directory", ""))
+	from := strings.TrimSpace(req.GetString("from", ""))
+	to := strings.TrimSpace(req.GetString("to", ""))
+	file := strings.TrimSpace(req.GetString("file", ""))
 	offset := req.GetInt("offset", 0)
-	buildTags := req.GetString("build_tags", "")
+	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
+
+	if dir == "" {
+		return mcp.NewToolResultError("rename_symbol: argument 'directory' is required. Specify the root directory of the Go module or workspace (e.g. '.')"), nil
+	}
+	if from == "" {
+		return mcp.NewToolResultError("rename_symbol: argument 'from' is required (current symbol name)"), nil
+	}
+	if to == "" {
+		return mcp.NewToolResultError("rename_symbol: argument 'to' is required (new symbol name)"), nil
+	}
 
 	opts := refactor.RenameOptions{
 		Dir:       dir,
@@ -95,10 +106,20 @@ func handleRenameSymbol(_ context.Context, req mcp.CallToolRequest) (*mcp.CallTo
 }
 
 func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	src := req.GetString("source_file", "")
-	dest := req.GetString("dest_dir", "")
-	newName := req.GetString("new_name", "")
-	buildTags := req.GetString("build_tags", "")
+	src := strings.TrimSpace(req.GetString("source_file", ""))
+	dest := strings.TrimSpace(req.GetString("dest_dir", ""))
+	newName := strings.TrimSpace(req.GetString("new_name", ""))
+	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
+
+	if src == "" {
+		return mcp.NewToolResultError("move_file: argument 'source_file' is required. Specify the relative or absolute path to a .go file"), nil
+	}
+	if !strings.HasSuffix(src, ".go") {
+		return mcp.NewToolResultError(fmt.Sprintf("move_file: argument 'source_file' (%q) must be a .go file. Use 'move_directory' for directory moves", src)), nil
+	}
+	if dest == "" && newName == "" {
+		return mcp.NewToolResultError("move_file: at least one of 'dest_dir' (to move file) or 'new_name' (to rename file) is required"), nil
+	}
 
 	opts := refactor.MoveFileOptions{
 		SourceFile: src,
@@ -119,9 +140,16 @@ func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 }
 
 func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	src := req.GetString("source_dir", "")
-	dest := req.GetString("dest_dir", "")
-	buildTags := req.GetString("build_tags", "")
+	src := strings.TrimSpace(req.GetString("source_dir", ""))
+	dest := strings.TrimSpace(req.GetString("dest_dir", ""))
+	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
+
+	if src == "" {
+		return mcp.NewToolResultError("move_directory: argument 'source_dir' is required. Specify the source directory path"), nil
+	}
+	if dest == "" {
+		return mcp.NewToolResultError("move_directory: argument 'dest_dir' is required. Specify the destination directory path"), nil
+	}
 
 	opts := refactor.MoveDirOptions{
 		SourceDir: src,
@@ -136,10 +164,20 @@ func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 }
 
 func handleImplementInterface(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	filePath := req.GetString("file_path", "")
-	structName := req.GetString("struct_name", "")
-	interfaceName := req.GetString("interface_name", "")
-	buildTags := req.GetString("build_tags", "")
+	filePath := strings.TrimSpace(req.GetString("file_path", ""))
+	structName := strings.TrimSpace(req.GetString("struct_name", ""))
+	interfaceName := strings.TrimSpace(req.GetString("interface_name", ""))
+	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
+
+	if filePath == "" {
+		return mcp.NewToolResultError("implement_interface: argument 'file_path' is required. Specify the path to the Go file containing the struct"), nil
+	}
+	if structName == "" {
+		return mcp.NewToolResultError("implement_interface: argument 'struct_name' is required. Specify the name of the target struct"), nil
+	}
+	if interfaceName == "" {
+		return mcp.NewToolResultError("implement_interface: argument 'interface_name' is required (e.g. 'io.Reader' or a local interface name)"), nil
+	}
 
 	opts := refactor.ImplIfaceOptions{
 		FilePath:      filePath,
@@ -155,9 +193,14 @@ func handleImplementInterface(_ context.Context, req mcp.CallToolRequest) (*mcp.
 }
 
 func handleAnalyzeShadowing(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	targetPath := req.GetString("target_path", "")
+	targetPath := strings.TrimSpace(req.GetString("target_path", ""))
+	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
 
-	issues, err := refactor.AnalyzeShadowing(targetPath)
+	if targetPath == "" {
+		return mcp.NewToolResultError("analyze_shadowing: argument 'target_path' is required. Specify the path to a Go file or package directory"), nil
+	}
+
+	issues, err := refactor.AnalyzeShadowing(targetPath, buildTags)
 	if err != nil {
 		return mcp.NewToolResultError(fmt.Sprintf("analyze_shadowing failed: %v", err)), nil
 	}

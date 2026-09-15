@@ -20,22 +20,31 @@ type MoveDirOptions struct {
 
 // MoveDirectory moves a directory and updates all import paths referencing it across the workspace.
 func MoveDirectory(opts MoveDirOptions) error {
-	absSource, err := filepath.Abs(opts.SourceDir)
+	cleanSource := strings.TrimSpace(opts.SourceDir)
+	cleanDest := strings.TrimSpace(opts.DestDir)
+	if cleanSource == "" || cleanDest == "" {
+		return fmt.Errorf("both 'source_dir' and 'dest_dir' are required to move a directory")
+	}
+
+	absSource, err := filepath.Abs(cleanSource)
 	if err != nil {
 		return fmt.Errorf("invalid source dir: %w", err)
 	}
-	absDest, err := filepath.Abs(opts.DestDir)
+	absDest, err := filepath.Abs(cleanDest)
 	if err != nil {
 		return fmt.Errorf("invalid dest dir: %w", err)
 	}
 
 	if absSource == absDest {
-		return nil // Idempotent
+		return fmt.Errorf("destination directory is identical to source directory: %s", absSource)
 	}
 
 	info, err := os.Stat(absSource)
-	if err != nil || !info.IsDir() {
-		return fmt.Errorf("source directory %s does not exist or is not a directory", absSource)
+	if err != nil {
+		return fmt.Errorf("source directory %s does not exist: %w", absSource, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("source path %s is a file, not a directory; use 'move_file' instead", absSource)
 	}
 
 	ws, err := FindWorkspace(absSource)

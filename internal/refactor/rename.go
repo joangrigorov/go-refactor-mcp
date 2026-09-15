@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"go/types"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/tools/go/packages"
 )
@@ -23,12 +24,19 @@ type RenameOptions struct {
 
 // RenameSymbol renames a symbol (var, func, struct, interface, field, type param) across the module.
 func RenameSymbol(opts RenameOptions) error {
-	if opts.From == "" || opts.To == "" {
+	cleanFrom := strings.TrimSpace(opts.From)
+	cleanTo := strings.TrimSpace(opts.To)
+	if cleanFrom == "" || cleanTo == "" {
 		return fmt.Errorf("both 'from' and 'to' symbol names are required")
 	}
-	if opts.From == opts.To {
+	if !token.IsIdentifier(cleanTo) || token.Lookup(cleanTo).IsKeyword() {
+		return fmt.Errorf("target symbol name %q is not a valid Go identifier (must start with a letter/underscore and cannot be a Go keyword)", cleanTo)
+	}
+	if cleanFrom == cleanTo {
 		return nil // Idempotent: already has desired name
 	}
+	opts.From = cleanFrom
+	opts.To = cleanTo
 
 	ws, err := FindWorkspace(opts.Dir)
 	if err != nil {
@@ -46,7 +54,10 @@ func RenameSymbol(opts RenameOptions) error {
 
 	targetObj := findTargetSymbol(pkgs, opts)
 	if targetObj == nil {
-		return fmt.Errorf("symbol %q not found in workspace", opts.From)
+		if opts.File != "" {
+			return fmt.Errorf("symbol %q not found in file %q (%d packages scanned). Check spelling, offset, or verify the symbol declaration", opts.From, opts.File, len(pkgs))
+		}
+		return fmt.Errorf("symbol %q not found in workspace (%d packages scanned). If the symbol is unexported or located in a specific file, specify the 'file' parameter", opts.From, len(pkgs))
 	}
 
 	return applyASTRename(pkgs, targetObj, opts)
