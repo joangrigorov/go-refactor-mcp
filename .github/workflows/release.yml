@@ -27,7 +27,7 @@ jobs:
         if: ${{ steps.release.outputs.release_created }}
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v5.5.0
         with:
-          go-version-file: 'go.mod'
+          go-version: '1.26.x'
           cache: true
 
       - name: Fetch all tags
