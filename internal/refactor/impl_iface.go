@@ -49,6 +49,58 @@ var standardInterfaces = map[string][]MethodStub{
 	},
 }
 
+// stdlibShorthands maps common standard library package shorthands without directory paths to canonical import paths.
+var stdlibShorthands = map[string]string{
+	"http":         "net/http",
+	"url":          "net/url",
+	"mail":         "net/mail",
+	"rpc":          "net/rpc",
+	"smtp":         "net/smtp",
+	"sql":          "database/sql",
+	"driver":       "database/sql/driver",
+	"json":         "encoding/json",
+	"xml":          "encoding/xml",
+	"csv":          "encoding/csv",
+	"base64":       "encoding/base64",
+	"hex":          "encoding/hex",
+	"binary":       "encoding/binary",
+	"tar":          "archive/tar",
+	"zip":          "archive/zip",
+	"atomic":       "sync/atomic",
+	"slog":         "log/slog",
+	"syslog":       "log/syslog",
+	"tabwriter":    "text/tabwriter",
+	"scanner":      "text/scanner",
+	"template":     "text/template",
+	"htmltemplate": "html/template",
+	"fstest":       "testing/fstest",
+	"iotest":       "testing/iotest",
+	"quick":        "testing/quick",
+	"pprof":        "runtime/pprof",
+	"trace":        "runtime/trace",
+	"tls":          "crypto/tls",
+	"x509":         "crypto/x509",
+	"rsa":          "crypto/rsa",
+	"ecdsa":        "crypto/ecdsa",
+	"ed25519":      "crypto/ed25519",
+	"rand":         "crypto/rand",
+	"sha256":       "crypto/sha256",
+	"sha512":       "crypto/sha512",
+	"sha1":         "crypto/sha1",
+	"md5":          "crypto/md5",
+	"hmac":         "crypto/hmac",
+	"cipher":       "crypto/cipher",
+	"subtle":       "crypto/subtle",
+	"color":        "image/color",
+	"draw":         "image/draw",
+	"gif":          "image/gif",
+	"jpeg":         "image/jpeg",
+	"png":          "image/png",
+	"heap":         "container/heap",
+	"list":         "container/list",
+	"ring":         "container/ring",
+}
+
 // ImplementInterface generates missing method stubs for InterfaceName on StructName.
 func ImplementInterface(opts ImplIfaceOptions) error {
 	cleanStruct := strings.TrimSpace(opts.StructName)
@@ -146,19 +198,31 @@ func findAvailableStructs(astFile *ast.File) []string {
 }
 
 func resolveStubs(absPath string, fset *token.FileSet, astFile *ast.File, interfaceName string) ([]MethodStub, error) {
+	return resolveStubsInternal(absPath, fset, astFile, interfaceName, make(map[string]bool))
+}
+
+func resolveStubsInternal(absPath string, fset *token.FileSet, astFile *ast.File, interfaceName string, visited map[string]bool) ([]MethodStub, error) {
 	if stubs, ok := standardInterfaces[interfaceName]; ok {
 		return stubs, nil
 	}
 
-	if localStubs, err := resolveLocalInterface(fset, astFile, interfaceName); err == nil && len(localStubs) > 0 {
+	localStubs, err := resolveLocalInterface(absPath, fset, astFile, interfaceName, visited)
+	if err == nil && len(localStubs) > 0 {
 		return localStubs, nil
 	}
+	if err != nil && (strings.Contains(err.Error(), "failed to resolve embedded interface") || strings.Contains(err.Error(), "not an interface")) {
+		return nil, err
+	}
 
-	if dynStubs := resolveInterfaceDynamic(absPath, astFile, interfaceName); len(dynStubs) > 0 {
+	dynStubs, dynErr := resolveInterfaceDynamic(absPath, astFile, interfaceName)
+	if dynErr != nil {
+		return nil, dynErr
+	}
+	if len(dynStubs) > 0 {
 		return dynStubs, nil
 	}
 
-	if wsStubs, err := resolveInterfaceInWorkspace(filepath.Dir(absPath), interfaceName); err == nil && len(wsStubs) > 0 {
+	if wsStubs, wsErr := resolveInterfaceInWorkspace(filepath.Dir(absPath), interfaceName); wsErr == nil && len(wsStubs) > 0 {
 		return wsStubs, nil
 	}
 
@@ -179,10 +243,10 @@ func findExistingMethods(astFile *ast.File, structName string) map[string]bool {
 	return existingMethods
 }
 
-func resolveInterfaceDynamic(absPath string, astFile *ast.File, interfaceName string) []MethodStub {
+func resolveInterfaceDynamic(absPath string, astFile *ast.File, interfaceName string) ([]MethodStub, error) {
 	lastDot := strings.LastIndex(interfaceName, ".")
 	if lastDot == -1 {
-		return nil
+		return nil, nil
 	}
 
 	pkgPart := interfaceName[:lastDot]
@@ -190,47 +254,81 @@ func resolveInterfaceDynamic(absPath string, astFile *ast.File, interfaceName st
 
 	pkgPath := pkgPart
 	if !strings.Contains(pkgPart, "/") {
-		for _, imp := range astFile.Imports {
-			importPath, _ := strconv.Unquote(imp.Path.Value)
-			alias := filepath.Base(importPath)
-			if imp.Name != nil && imp.Name.Name != "" {
-				alias = imp.Name.Name
+		matchedImport := false
+		if astFile != nil {
+			for _, imp := range astFile.Imports {
+				importPath, _ := strconv.Unquote(imp.Path.Value)
+				alias := filepath.Base(importPath)
+				if imp.Name != nil && imp.Name.Name != "" {
+					alias = imp.Name.Name
+				}
+				if alias == pkgPart {
+					pkgPath = importPath
+					matchedImport = true
+					break
+				}
 			}
-			if alias == pkgPart {
-				pkgPath = importPath
-				break
+		}
+		if !matchedImport {
+			if stdlibPath, ok := stdlibShorthands[pkgPart]; ok {
+				pkgPath = stdlibPath
 			}
 		}
 	}
 
+	dir := "."
+	if absPath != "" {
+		dir = filepath.Dir(absPath)
+	}
+
 	cfg := &packages.Config{
 		Mode: packages.NeedTypes | packages.NeedImports,
-		Dir:  filepath.Dir(absPath),
+		Dir:  dir,
 	}
 
 	pkgs, err := packages.Load(cfg, pkgPath)
 	if err != nil || len(pkgs) == 0 || pkgs[0].Types == nil {
-		return nil
+		return nil, nil
 	}
 
 	obj := pkgs[0].Types.Scope().Lookup(ifaceName)
 	if obj == nil {
-		return nil
+		return nil, nil
 	}
 
 	itype, ok := obj.Type().Underlying().(*types.Interface)
 	if !ok {
-		return nil
+		return nil, fmt.Errorf("type %q in package %q is a %s, not an interface", ifaceName, pkgPath, typeKind(obj.Type().Underlying()))
 	}
 
-	return extractInterfaceStubsFromType(itype)
+	return extractInterfaceStubsFromType(itype, astFile), nil
 }
 
-func extractInterfaceStubsFromType(itype *types.Interface) []MethodStub {
+func extractInterfaceStubsFromType(itype *types.Interface, astFile *ast.File) []MethodStub {
 	var stubs []MethodStub
+
+	targetPkgName := ""
+	aliasMap := make(map[string]string)
+	if astFile != nil {
+		if astFile.Name != nil {
+			targetPkgName = astFile.Name.Name
+		}
+		for _, imp := range astFile.Imports {
+			if imp.Path != nil {
+				p, err := strconv.Unquote(imp.Path.Value)
+				if err == nil && imp.Name != nil && imp.Name.Name != "" {
+					aliasMap[p] = imp.Name.Name
+				}
+			}
+		}
+	}
+
 	qualifier := func(pkg *types.Package) string {
-		if pkg == nil {
+		if pkg == nil || pkg.Name() == targetPkgName {
 			return ""
+		}
+		if alias, ok := aliasMap[pkg.Path()]; ok {
+			return alias
 		}
 		return pkg.Name()
 	}
@@ -251,7 +349,7 @@ func extractInterfaceStubsFromType(itype *types.Interface) []MethodStub {
 			Results: results,
 		})
 	}
-	return stubs
+	return deduplicateStubs(stubs)
 }
 
 func formatTuple(tuple *types.Tuple, variadic bool, qf types.Qualifier) string {
@@ -301,13 +399,18 @@ func isReceiverForStruct(recv *ast.FieldList, structName string) bool {
 	return false
 }
 
-func resolveLocalInterface(fset *token.FileSet, astFile *ast.File, interfaceName string) ([]MethodStub, error) {
+func resolveLocalInterface(absPath string, fset *token.FileSet, astFile *ast.File, interfaceName string, visited map[string]bool) ([]MethodStub, error) {
 	cleanName := interfaceName
 	if idx := strings.LastIndex(cleanName, "."); idx != -1 {
 		cleanName = cleanName[idx+1:]
 	}
 
-	var stubs []MethodStub
+	if visited[cleanName] {
+		return nil, nil
+	}
+	visited[cleanName] = true
+
+	var foundTypeSpec *ast.TypeSpec
 	for _, decl := range astFile.Decls {
 		g, ok := decl.(*ast.GenDecl)
 		if !ok || g.Tok != token.TYPE {
@@ -318,16 +421,28 @@ func resolveLocalInterface(fset *token.FileSet, astFile *ast.File, interfaceName
 			if !ok || ts.Name.Name != cleanName {
 				continue
 			}
-			itype, ok := ts.Type.(*ast.InterfaceType)
-			if !ok || itype.Methods == nil {
-				continue
-			}
+			foundTypeSpec = ts
+			break
+		}
+		if foundTypeSpec != nil {
+			break
+		}
+	}
 
-			for _, m := range itype.Methods.List {
-				ft, ok := m.Type.(*ast.FuncType)
-				if !ok {
-					continue
-				}
+	if foundTypeSpec == nil {
+		return nil, fmt.Errorf("interface %q not found in file", cleanName)
+	}
+
+	itype, ok := foundTypeSpec.Type.(*ast.InterfaceType)
+	if !ok {
+		return nil, fmt.Errorf("type %q is a %s, not an interface", cleanName, astTypeKind(foundTypeSpec.Type))
+	}
+
+	var stubs []MethodStub
+	if itype.Methods != nil {
+		for _, m := range itype.Methods.List {
+			// Case 1: Standard method declaration
+			if ft, ok := m.Type.(*ast.FuncType); ok {
 				paramsStr := formatFieldList(fset, ft.Params)
 				resultsStr := formatResultsFieldList(fset, ft.Results)
 
@@ -340,10 +455,41 @@ func resolveLocalInterface(fset *token.FileSet, astFile *ast.File, interfaceName
 						})
 					}
 				}
+				continue
+			}
+
+			// Case 2: Embedded local interface (*ast.Ident)
+			if id, ok := m.Type.(*ast.Ident); ok {
+				embeddedStubs, err := resolveLocalInterface(absPath, fset, astFile, id.Name, visited)
+				if err == nil && len(embeddedStubs) > 0 {
+					stubs = append(stubs, embeddedStubs...)
+					continue
+				}
+				if absPath != "" {
+					wsStubs, wsErr := resolveInterfaceInWorkspace(filepath.Dir(absPath), id.Name)
+					if wsErr == nil && len(wsStubs) > 0 {
+						stubs = append(stubs, wsStubs...)
+						continue
+					}
+				}
+				return nil, fmt.Errorf("failed to resolve embedded interface %q in %q: interface could not be found", id.Name, cleanName)
+			}
+
+			// Case 3: Embedded imported interface (*ast.SelectorExpr, e.g. io.Reader or io.ReadCloser)
+			if sel, ok := m.Type.(*ast.SelectorExpr); ok {
+				if xIdent, ok := sel.X.(*ast.Ident); ok {
+					embeddedIface := xIdent.Name + "." + sel.Sel.Name
+					embeddedStubs, err := resolveStubsInternal(absPath, fset, astFile, embeddedIface, visited)
+					if err != nil || len(embeddedStubs) == 0 {
+						return nil, fmt.Errorf("failed to resolve embedded interface %q in %q: %w", embeddedIface, cleanName, err)
+					}
+					stubs = append(stubs, embeddedStubs...)
+				}
 			}
 		}
 	}
-	return stubs, nil
+
+	return deduplicateStubs(stubs), nil
 }
 
 func resolveInterfaceInWorkspace(dirPath string, interfaceName string) ([]MethodStub, error) {
@@ -367,7 +513,7 @@ func resolveInterfaceInWorkspace(dirPath string, interfaceName string) ([]Method
 		if parseErr != nil {
 			return nil
 		}
-		stubs, resolveErr := resolveLocalInterface(fset, fileAST, cleanName)
+		stubs, resolveErr := resolveLocalInterface(path, fset, fileAST, cleanName, make(map[string]bool))
 		if resolveErr == nil && len(stubs) > 0 {
 			foundStubs = stubs
 			return filepath.SkipAll
@@ -379,6 +525,48 @@ func resolveInterfaceInWorkspace(dirPath string, interfaceName string) ([]Method
 		return foundStubs, nil
 	}
 	return nil, fmt.Errorf("interface %s not found", interfaceName)
+}
+
+func deduplicateStubs(stubs []MethodStub) []MethodStub {
+	seen := make(map[string]bool)
+	var deduped []MethodStub
+	for _, s := range stubs {
+		if !seen[s.Name] {
+			seen[s.Name] = true
+			deduped = append(deduped, s)
+		}
+	}
+	return deduped
+}
+
+func typeKind(t types.Type) string {
+	switch t.(type) {
+	case *types.Struct:
+		return "struct"
+	case *types.Signature:
+		return "function"
+	case *types.Basic:
+		return "basic type"
+	case *types.Pointer:
+		return "pointer"
+	default:
+		return "non-interface type"
+	}
+}
+
+func astTypeKind(expr ast.Expr) string {
+	switch expr.(type) {
+	case *ast.StructType:
+		return "struct"
+	case *ast.FuncType:
+		return "function"
+	case *ast.ArrayType:
+		return "slice/array"
+	case *ast.MapType:
+		return "map"
+	default:
+		return "non-interface type"
+	}
 }
 
 func formatFieldList(fset *token.FileSet, fields *ast.FieldList) string {
