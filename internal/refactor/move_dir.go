@@ -62,6 +62,10 @@ func MoveDirectory(opts MoveDirOptions) error {
 		return fmt.Errorf("could not determine new import path: %w", err)
 	}
 
+	if cycleErr := checkDirectoryCyclicDependency(ws, absSource, oldImportPath, newImportPath, opts.BuildTags); cycleErr != nil {
+		return cycleErr
+	}
+
 	if err := moveDirOnDisk(absSource, absDest); err != nil {
 		return err
 	}
@@ -182,3 +186,51 @@ func updateWorkspaceImports(ws *Workspace, oldImportPath, newImportPath string) 
 
 	return nil
 }
+
+func checkDirectoryCyclicDependency(ws *Workspace, absSource, oldImportPath, newImportPath, buildTags string) error {
+	userTags := ParseBuildTags(buildTags)
+	pkgs, pkgErr := ws.LoadAllPlatformPackages(userTags)
+	if pkgErr != nil {
+		pkgs, pkgErr = ws.LoadPackages(userTags)
+		if pkgErr != nil {
+			return nil
+		}
+	}
+
+	sourceImports := make(map[string]bool)
+	_ = filepath.Walk(absSource, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err
+		}
+		fset := token.NewFileSet()
+		astFile, parseErr := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		if parseErr == nil {
+			for _, imp := range astFile.Imports {
+				p, unquoteErr := strconv.Unquote(imp.Path.Value)
+				if unquoteErr == nil {
+					if p == oldImportPath || strings.HasPrefix(p, oldImportPath+"/") {
+						continue
+					}
+					sourceImports[p] = true
+				}
+			}
+		}
+		return nil
+	})
+
+	for impPath := range sourceImports {
+		if impPath == newImportPath {
+			return fmt.Errorf("cyclic dependency detected: moving directory to package %q creates a direct self-dependency", newImportPath)
+		}
+		if hasDependency(pkgs, impPath, newImportPath) {
+			return fmt.Errorf("cyclic dependency detected: moving directory to package %q creates a cyclic dependency chain with %q", newImportPath, impPath)
+		}
+	}
+
+	if oldImportPath != newImportPath && hasDependency(pkgs, newImportPath, oldImportPath) {
+		return fmt.Errorf("cyclic dependency detected: destination package %q already depends on %q", newImportPath, oldImportPath)
+	}
+
+	return nil
+}
+

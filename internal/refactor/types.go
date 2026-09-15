@@ -14,15 +14,6 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// ShadowIssue represents a detected shadowed variable.
-type ShadowIssue struct {
-	VarName      string `json:"var_name"`
-	Line         int    `json:"line"`
-	ShadowedLine int    `json:"shadowed_line"`
-	Scope        string `json:"scope"`
-	Message      string `json:"message"`
-}
-
 // Standard OS/Arch build tags to ignore during custom build tag auto-discovery
 var standardGoBuildTags = map[string]bool{
 	"android": true, "darwin": true, "dragonfly": true, "freebsd": true, "illumos": true,

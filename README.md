@@ -18,15 +18,13 @@ When AI agents perform refactoring manually via search-and-replace, they often m
 
 ## 🛠️ Comprehensive MCP Toolset
 
-`go-refactor-mcp` exposes 5 production-grade refactoring tools over standard STDIO (JSON-RPC):
+`go-refactor-mcp` exposes 3 production-grade refactoring tools over standard STDIO (JSON-RPC):
 
 | Tool Name | Parameters | Description |
 |---|---|---|
-| `rename_symbol` | `directory` (string, required)<br>`from` (string, required)<br>`to` (string, required)<br>`file` (string, optional)<br>`offset` (number, optional) | Renames a variable, function, struct, interface, package, or generic type parameter across the entire module. Handles cross-package, aliased, and dot-imported symbols. |
-| `move_file` | `source_file` (string, required)<br>`dest_dir` (string, optional)<br>`new_name` (string, optional) | Moves or renames a `.go` file (and associated `_test.go`) to a new directory or filename. Preserves `//go:build` tags, updates package clauses, updates import paths, and aborts if an import cycle is detected. |
-| `move_directory` | `source_dir` (string, required)<br>`dest_dir` (string, required) | Moves an entire package directory and updates all import paths referencing this package and its sub-packages workspace-wide. |
-| `implement_interface` | `file_path` (string, required)<br>`struct_name` (string, required)<br>`interface_name` (string, required) | Generates missing method stubs for a struct to satisfy an interface (e.g. `io.Reader`, `fmt.Stringer`, or local interface). |
-| `analyze_shadowing` | `target_path` (string, required) | Scans a file or package directory for shadowed variables, returning structured reports to prevent logic bugs. |
+| `rename_symbol` | `directory` (string, required)<br>`from` (string, required)<br>`to` (string, required)<br>`file` (string, optional)<br>`offset` (number, optional)<br>`build_tags` (string, optional) | Renames a variable, function, struct, interface, package, or generic type parameter across the entire module. Handles cross-package, aliased, dot-imported symbols, and platform-specific/build-tagged files. |
+| `move_file` | `source_file` (string, required)<br>`dest_dir` (string, optional)<br>`new_name` (string, optional)<br>`build_tags` (string, optional) | Moves or renames a `.go` file (and associated `_test.go`) to a new directory or filename. Preserves `//go:build` tags, updates package clauses, updates import paths across the workspace, and aborts if an import cycle is detected. |
+| `move_directory` | `source_dir` (string, required)<br>`dest_dir` (string, required)<br>`build_tags` (string, optional) | Moves an entire package directory, updates package declarations, updates all import paths referencing this package and its sub-packages workspace-wide, and aborts if an import cycle is detected. |
 
 ---
 
