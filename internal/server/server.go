@@ -12,8 +12,19 @@ import (
 )
 
 // NewServer creates a new MCP server with all refactoring tools registered.
-func NewServer() *server.MCPServer {
-	s := server.NewMCPServer("go-refactor-mcp", "1.0.0")
+// It explicitly sets tool capabilities with listChanged=false because go-refactor-mcp
+// has a static toolset and mcp-go v1.0.0's subscriptions/listen implementation blocks
+// synchronously on <-ctx.Done() over STDIO when listChanged is true.
+func NewServer(version ...string) *server.MCPServer {
+	v := "1.0.0"
+	if len(version) > 0 && version[0] != "" {
+		v = version[0]
+	}
+	s := server.NewMCPServer(
+		"go-refactor-mcp",
+		v,
+		server.WithToolCapabilities(false),
+	)
 
 	registerTools(s)
 

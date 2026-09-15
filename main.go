@@ -10,7 +10,11 @@ import (
 	mcpServer "github.com/mark3labs/mcp-go/server"
 )
 
-const version = "1.0.0"
+var (
+	version = "1.0.0"
+	commit  = "none"
+	date    = "unknown"
+)
 
 func main() {
 	helpFlag := flag.Bool("help", false, "Show help message")
@@ -28,11 +32,11 @@ func main() {
 	}
 
 	if *versionFlag || isVersionArg() {
-		fmt.Printf("go-refactor-mcp version %s\n", version)
+		fmt.Printf("go-refactor-mcp version %s (commit: %s, built at: %s)\n", version, commit, date)
 		os.Exit(0)
 	}
 
-	s := server.NewServer()
+	s := server.NewServer(version)
 
 	if err := mcpServer.ServeStdio(s); err != nil {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
@@ -75,8 +79,6 @@ Available MCP Tools:
   - rename_symbol       Renames a symbol across the entire module.
   - move_file           Moves or renames a .go file (and _test.go), updating package/imports.
   - move_directory      Moves a package directory and updates module import paths.
-  - implement_interface Generates missing interface method stubs for a struct.
-  - analyze_shadowing   Scans for shadowed variables in files or packages.
 
 For MCP Host Configuration (Claude Desktop, Cursor, agy, Grok), see README.md.
 `, version)
