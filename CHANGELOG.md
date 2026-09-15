@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.4.0...v0.4.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **server:** resolve stdio handshake hang on modern protocol and cleanup help text ([#25](https://github.com/joangrigorov/go-refactor-mcp/issues/25)) ([0a8c488](https://github.com/joangrigorov/go-refactor-mcp/commit/0a8c488ca816917cb3828f617add5a3912c5930e))
+
 ## [0.4.0](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.3.0...v0.4.0) (2026-09-15)
 
 
