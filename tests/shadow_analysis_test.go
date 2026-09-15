@@ -16,8 +16,24 @@ func TestShadowingAnalysis(t *testing.T) {
 var val = 100
 
 func Process() int {
-	val := 5
+	val := 5 // shadows package-level val
 	res := val + 10
+
+	if true {
+		res := 20 // shadows local res
+		_ = res
+	}
+
+	// Sibling block: declaring 's' here should not shadow 's' in another sibling block
+	if true {
+		s := "block1"
+		_ = s
+	}
+	if true {
+		s := "block2"
+		_ = s
+	}
+
 	return res
 }
 `
@@ -31,7 +47,15 @@ func Process() int {
 		t.Fatalf("AnalyzeShadowing failed: %v", err)
 	}
 
-	if len(issues) == 0 {
-		t.Log("AnalyzeShadowing returned 0 issues for local scope check")
+	if len(issues) != 2 {
+		t.Fatalf("expected exactly 2 shadow issues (val and res), got %d: %+v", len(issues), issues)
+	}
+
+	// Verify val shadowing
+	if issues[0].VarName != "val" {
+		t.Errorf("expected first issue to be 'val', got %q", issues[0].VarName)
+	}
+	if issues[1].VarName != "res" {
+		t.Errorf("expected second issue to be 'res', got %q", issues[1].VarName)
 	}
 }

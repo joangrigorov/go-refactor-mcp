@@ -11,8 +11,13 @@ import (
 )
 
 // AnalyzeShadowing scans a file or package directory and returns detected shadowed variables.
-func AnalyzeShadowing(targetPath string) ([]ShadowIssue, error) {
-	absPath, err := filepath.Abs(targetPath)
+func AnalyzeShadowing(targetPath string, _ ...string) ([]ShadowIssue, error) {
+	cleanTarget := strings.TrimSpace(targetPath)
+	if cleanTarget == "" {
+		return nil, fmt.Errorf("argument 'target_path' cannot be empty")
+	}
+
+	absPath, err := filepath.Abs(cleanTarget)
 	if err != nil {
 		return nil, fmt.Errorf("invalid target path: %w", err)
 	}
@@ -102,16 +107,39 @@ func inspectFileShadowing(fset *token.FileSet, astFile *ast.File) []ShadowIssue 
 		scopeStack[currIdx] = append(scopeStack[currIdx], scopeVar{name: name, line: line})
 	}
 
-	// Traversal
-	pushScope() // Top-level package scope
+	// Package-level scope
+	pushScope()
+	for _, decl := range astFile.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if ok && (gen.Tok == token.VAR || gen.Tok == token.CONST) {
+			for _, spec := range gen.Specs {
+				valSpec, ok := spec.(*ast.ValueSpec)
+				if ok {
+					for _, name := range valSpec.Names {
+						addVar(name.Name, fset.Position(name.Pos()).Line)
+					}
+				}
+			}
+		}
+	}
 
+	// Inspect functions
 	for _, decl := range astFile.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
 		if !ok || fn.Body == nil {
 			continue
 		}
 
-		pushScope() // Func scope
+		pushScope() // Function level scope
+
+		// Receiver
+		if fn.Recv != nil {
+			for _, field := range fn.Recv.List {
+				for _, name := range field.Names {
+					addVar(name.Name, fset.Position(name.Pos()).Line)
+				}
+			}
+		}
 
 		// Parameters
 		if fn.Type.Params != nil {
@@ -123,30 +151,103 @@ func inspectFileShadowing(fset *token.FileSet, astFile *ast.File) []ShadowIssue 
 		}
 
 		// Function Body
-		ast.Inspect(fn.Body, func(n ast.Node) bool {
-			if n == nil {
-				return true
-			}
-
-			switch stmt := n.(type) {
-			case *ast.BlockStmt:
-				pushScope()
-			case *ast.AssignStmt:
-				if stmt.Tok == token.DEFINE { // := definition
-					for _, expr := range stmt.Lhs {
-						if id, ok := expr.(*ast.Ident); ok {
-							addVar(id.Name, fset.Position(id.Pos()).Line)
-						}
-					}
-				}
-			}
-			return true
-		})
+		walkScopedNode(fn.Body, fset, pushScope, popScope, addVar)
 
 		popScope()
 	}
 
-	popScope()
+	popScope() // Pop package-level scope
 
 	return issues
+}
+
+func walkScopedNode(n ast.Node, fset *token.FileSet, pushScope func(), popScope func(), addVar func(string, int)) {
+	if n == nil {
+		return
+	}
+
+	switch node := n.(type) {
+	case *ast.BlockStmt:
+		pushScope()
+		for _, stmt := range node.List {
+			walkScopedNode(stmt, fset, pushScope, popScope, addVar)
+		}
+		popScope()
+
+	case *ast.IfStmt:
+		pushScope()
+		if node.Init != nil {
+			walkScopedNode(node.Init, fset, pushScope, popScope, addVar)
+		}
+		walkScopedNode(node.Cond, fset, pushScope, popScope, addVar)
+		walkScopedNode(node.Body, fset, pushScope, popScope, addVar)
+		if node.Else != nil {
+			walkScopedNode(node.Else, fset, pushScope, popScope, addVar)
+		}
+		popScope()
+
+	case *ast.ForStmt:
+		pushScope()
+		if node.Init != nil {
+			walkScopedNode(node.Init, fset, pushScope, popScope, addVar)
+		}
+		if node.Cond != nil {
+			walkScopedNode(node.Cond, fset, pushScope, popScope, addVar)
+		}
+		if node.Post != nil {
+			walkScopedNode(node.Post, fset, pushScope, popScope, addVar)
+		}
+		walkScopedNode(node.Body, fset, pushScope, popScope, addVar)
+		popScope()
+
+	case *ast.RangeStmt:
+		pushScope()
+		if node.Tok == token.DEFINE {
+			if key, ok := node.Key.(*ast.Ident); ok {
+				addVar(key.Name, fset.Position(key.Pos()).Line)
+			}
+			if val, ok := node.Value.(*ast.Ident); ok {
+				addVar(val.Name, fset.Position(val.Pos()).Line)
+			}
+		}
+		walkScopedNode(node.X, fset, pushScope, popScope, addVar)
+		walkScopedNode(node.Body, fset, pushScope, popScope, addVar)
+		popScope()
+
+	case *ast.AssignStmt:
+		if node.Tok == token.DEFINE {
+			for _, expr := range node.Lhs {
+				if id, ok := expr.(*ast.Ident); ok {
+					addVar(id.Name, fset.Position(id.Pos()).Line)
+				}
+			}
+		}
+		for _, expr := range node.Rhs {
+			walkScopedNode(expr, fset, pushScope, popScope, addVar)
+		}
+
+	case *ast.DeclStmt:
+		if gen, ok := node.Decl.(*ast.GenDecl); ok && gen.Tok == token.VAR {
+			for _, spec := range gen.Specs {
+				if valSpec, ok := spec.(*ast.ValueSpec); ok {
+					for _, name := range valSpec.Names {
+						addVar(name.Name, fset.Position(name.Pos()).Line)
+					}
+				}
+			}
+		}
+
+	default:
+		ast.Inspect(n, func(child ast.Node) bool {
+			if child == nil || child == n {
+				return true
+			}
+			switch child.(type) {
+			case *ast.BlockStmt, *ast.IfStmt, *ast.ForStmt, *ast.RangeStmt, *ast.AssignStmt, *ast.DeclStmt:
+				walkScopedNode(child, fset, pushScope, popScope, addVar)
+				return false
+			}
+			return true
+		})
+	}
 }

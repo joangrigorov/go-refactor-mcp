@@ -39,8 +39,14 @@ func MoveFile(opts MoveFileOptions) error {
 
 	sourceDir := filepath.Dir(absSource)
 
+	destTrimmed := strings.TrimSpace(opts.DestDir)
+	nameTrimmed := strings.TrimSpace(opts.NewName)
+	if destTrimmed == "" && nameTrimmed == "" {
+		return fmt.Errorf("at least one of 'dest_dir' or 'new_name' is required to move or rename a file")
+	}
+
 	absDestDir := sourceDir
-	if strings.TrimSpace(opts.DestDir) != "" {
+	if destTrimmed != "" {
 		d, err := filepath.Abs(opts.DestDir)
 		if err != nil {
 			return fmt.Errorf("invalid destination directory path: %w", err)
@@ -48,7 +54,7 @@ func MoveFile(opts MoveFileOptions) error {
 		absDestDir = d
 	}
 
-	newName := strings.TrimSpace(opts.NewName)
+	newName := nameTrimmed
 	if newName != "" {
 		newName = filepath.Base(newName)
 		if !strings.HasSuffix(newName, ".go") {
@@ -63,7 +69,7 @@ func MoveFile(opts MoveFileOptions) error {
 	}
 
 	if sourceDir == absDestDir && origBaseName == targetBaseName {
-		return nil // Moving file into its current directory with unchanged name is a no-op
+		return fmt.Errorf("destination file path is identical to source file path: %s", absSource)
 	}
 
 	ws, err := FindWorkspace(sourceDir)
@@ -72,6 +78,17 @@ func MoveFile(opts MoveFileOptions) error {
 	}
 
 	filesToMove := collectCompanionFiles(sourceDir, absSource, origBaseName)
+
+	// Guard against overwriting existing destination files
+	for _, srcPath := range filesToMove {
+		destFileName := computeDestFileName(srcPath, absSource, newName)
+		destPath := filepath.Join(absDestDir, destFileName)
+		if destPath != srcPath {
+			if _, statErr := os.Stat(destPath); statErr == nil {
+				return fmt.Errorf("destination file %q already exists; specify a different 'new_name' or remove the existing file before moving", destPath)
+			}
+		}
+	}
 
 	oldPkgName := DeterminePackageName(sourceDir, "")
 	oldImportPath, _ := ws.CalculateImportPath(sourceDir)
