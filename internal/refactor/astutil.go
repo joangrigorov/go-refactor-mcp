@@ -172,3 +172,55 @@ func AddImportSpec(fileAST *ast.File, spec *ast.ImportSpec) {
 	}
 	fileAST.Decls = append([]ast.Decl{importDecl}, fileAST.Decls...)
 }
+
+// ResolveUniqueImportAlias checks if preferredAlias is already used by another import in fileAST (other than exceptSpec).
+// If a collision is detected, it generates a disambiguated alias to avoid compiler redeclaration errors.
+func ResolveUniqueImportAlias(fileAST *ast.File, importPath, preferredAlias string, exceptSpec *ast.ImportSpec) string {
+	usedAliases := make(map[string]bool)
+	for _, imp := range fileAST.Imports {
+		if imp == exceptSpec || imp.Path == nil {
+			continue
+		}
+		p, _ := strconv.Unquote(imp.Path.Value)
+		if p == importPath {
+			continue
+		}
+		if imp.Name != nil && imp.Name.Name != "" && imp.Name.Name != "_" && imp.Name.Name != "." {
+			usedAliases[imp.Name.Name] = true
+		} else {
+			base := filepath.Base(p)
+			usedAliases[CleanPackageIdentifier(base)] = true
+		}
+	}
+
+	if !usedAliases[preferredAlias] {
+		return preferredAlias
+	}
+
+	cleanPath := strings.TrimRight(importPath, "/")
+	parent := filepath.Base(filepath.Dir(cleanPath))
+	if parent != "" && parent != "." && parent != "/" {
+		candidate := CleanPackageIdentifier(parent) + capitalize(preferredAlias)
+		if !usedAliases[candidate] {
+			return candidate
+		}
+		candidateSnake := CleanPackageIdentifier(parent) + "_" + preferredAlias
+		if !usedAliases[candidateSnake] {
+			return candidateSnake
+		}
+	}
+
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s%d", preferredAlias, i)
+		if !usedAliases[candidate] {
+			return candidate
+		}
+	}
+}
+
+func capitalize(s string) string {
+	if s == "" {
+		return ""
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}

@@ -310,6 +310,8 @@ func updateSourcePackageFile(path, newImportPath, newPkgName string, movedSymbol
 		return nil
 	}
 
+	targetAlias := ResolveUniqueImportAlias(astFile, newImportPath, newPkgName, nil)
+
 	if !HasImport(astFile, newImportPath) {
 		newSpec := &ast.ImportSpec{
 			Path: &ast.BasicLit{
@@ -317,10 +319,16 @@ func updateSourcePackageFile(path, newImportPath, newPkgName string, movedSymbol
 				Value: strconv.Quote(newImportPath),
 			},
 		}
+		if targetAlias != newPkgName {
+			newSpec.Name = ast.NewIdent(targetAlias)
+		}
 		AddImportSpec(astFile, newSpec)
+	} else {
+		existingSpec := FindImportSpec(astFile, newImportPath)
+		targetAlias = GetImportAlias(existingSpec, targetAlias)
 	}
 
-	rewriteUnprefixedSymbols(astFile, newPkgName, movedSymbols)
+	rewriteUnprefixedSymbols(astFile, targetAlias, movedSymbols)
 
 	return WriteASTFileWithImports(fset, astFile, path)
 }
@@ -430,17 +438,24 @@ func updateFileImportSpecsAndSelectors(
 		}
 	} else {
 		if !usesRemainingSymbols {
+			targetAlias = ResolveUniqueImportAlias(astFile, newImportPath, newPkgName, oldImpSpec)
 			oldImpSpec.Path.Value = strconv.Quote(newImportPath)
-			if oldImpSpec.Name != nil && (oldImpSpec.Name.Name == oldPkgName || oldImpSpec.Name.Name == newPkgName) {
+			if targetAlias != newPkgName {
+				oldImpSpec.Name = ast.NewIdent(targetAlias)
+			} else if oldImpSpec.Name != nil && (oldImpSpec.Name.Name == oldPkgName || oldImpSpec.Name.Name == newPkgName) {
 				oldImpSpec.Name = nil
 			}
 			modified = true
 		} else {
+			targetAlias = ResolveUniqueImportAlias(astFile, newImportPath, newPkgName, nil)
 			newSpec := &ast.ImportSpec{
 				Path: &ast.BasicLit{
 					Kind:  token.STRING,
 					Value: strconv.Quote(newImportPath),
 				},
+			}
+			if targetAlias != newPkgName {
+				newSpec.Name = ast.NewIdent(targetAlias)
 			}
 			AddImportSpec(astFile, newSpec)
 			modified = true

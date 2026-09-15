@@ -2,6 +2,7 @@ package refactor
 
 import (
 	"fmt"
+	"go/token"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,7 @@ type Workspace struct {
 	BuildTags []string
 }
 
-// FindWorkspace finds the enclosing workspace (go.work or go.mod) starting from startDir.
+// FindWorkspace finds the enclosing workspace (go.work, monorepo, or go.mod) starting from startDir.
 func FindWorkspace(startDir string) (*Workspace, error) {
 	absStart, err := filepath.Abs(startDir)
 	if err != nil {
@@ -42,7 +43,11 @@ func FindWorkspace(startDir string) (*Workspace, error) {
 		return loadGoWorkWorkspace(workRoot)
 	}
 
-	if len(modRoots) > 0 {
+	if len(modRoots) > 1 {
+		return loadMultiModWorkspace(absStart, modRoots)
+	}
+
+	if len(modRoots) == 1 {
 		return loadGoModWorkspace(modRoots[0])
 	}
 
@@ -70,7 +75,43 @@ func searchWorkspaceRoots(startDir string) (string, []string) {
 		curr = parent
 	}
 
+	// If no go.work was found, check if startDir or its parent is part of a multi-module monorepo
+	if workRoot == "" && len(modRoots) <= 1 {
+		searchBase := startDir
+		if len(modRoots) == 1 {
+			searchBase = filepath.Dir(modRoots[0])
+		}
+		discovered := discoverSubModules(searchBase)
+		if len(discovered) > 1 {
+			modRoots = discovered
+		}
+	}
+
 	return workRoot, modRoots
+}
+
+func discoverSubModules(baseDir string) []string {
+	var modRoots []string
+	_ = filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			name := info.Name()
+			if name == "vendor" || name == ".git" || name == ".github" || name == "node_modules" || (strings.HasPrefix(name, ".") && name != ".") {
+				return filepath.SkipDir
+			}
+			rel, relErr := filepath.Rel(baseDir, path)
+			if relErr == nil && strings.Count(rel, string(filepath.Separator)) > 3 {
+				return filepath.SkipDir
+			}
+			if _, statErr := os.Stat(filepath.Join(path, "go.mod")); statErr == nil {
+				modRoots = append(modRoots, path)
+			}
+		}
+		return nil
+	})
+	return modRoots
 }
 
 func loadGoWorkWorkspace(workRoot string) (*Workspace, error) {
@@ -116,6 +157,28 @@ func loadGoModWorkspace(modRoot string) (*Workspace, error) {
 		IsWork:  false,
 		Modules: []*ModuleInfo{modInfo},
 	}, nil
+}
+
+func loadMultiModWorkspace(root string, modRoots []string) (*Workspace, error) {
+	ws := &Workspace{
+		Root:   root,
+		IsWork: false,
+	}
+	seen := make(map[string]bool)
+	for _, mr := range modRoots {
+		if seen[mr] {
+			continue
+		}
+		seen[mr] = true
+		info, err := parseModuleInfo(mr)
+		if err == nil {
+			ws.Modules = append(ws.Modules, info)
+		}
+	}
+	if len(ws.Modules) == 0 {
+		return nil, fmt.Errorf("no valid modules found in monorepo at %s", root)
+	}
+	return ws, nil
 }
 
 func parseModuleInfo(modRoot string) (*ModuleInfo, error) {
@@ -232,14 +295,51 @@ func (ws *Workspace) LoadPackages(userTags []string) ([]*packages.Package, error
 		}
 	}
 
-	var allPkgs []*packages.Package
+	sharedFset := token.NewFileSet()
 
+	if ws.IsWork {
+		cfg := &packages.Config{
+			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
+				packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo |
+				packages.NeedSyntax | packages.NeedDeps,
+			Dir:   ws.Root,
+			Fset:  sharedFset,
+			Tests: true,
+		}
+
+		if len(tags) > 0 {
+			cfg.BuildFlags = []string{"-tags=" + strings.Join(tags, ",")}
+		}
+
+		var patterns []string
+		for _, mod := range ws.Modules {
+			rel, err := filepath.Rel(ws.Root, mod.Root)
+			if err == nil {
+				if rel == "." || rel == "" {
+					patterns = append(patterns, "./...")
+				} else {
+					patterns = append(patterns, "./"+filepath.ToSlash(rel)+"/...")
+				}
+			}
+		}
+		if len(patterns) == 0 {
+			patterns = []string{"./..."}
+		}
+
+		pkgs, err := packages.Load(cfg, patterns...)
+		if err == nil && len(pkgs) > 0 {
+			return pkgs, nil
+		}
+	}
+
+	var allPkgs []*packages.Package
 	for _, mod := range ws.Modules {
 		cfg := &packages.Config{
 			Mode: packages.NeedName | packages.NeedFiles | packages.NeedCompiledGoFiles |
 				packages.NeedImports | packages.NeedTypes | packages.NeedTypesInfo |
 				packages.NeedSyntax | packages.NeedDeps,
 			Dir:   mod.Root,
+			Fset:  sharedFset,
 			Tests: true,
 		}
 
