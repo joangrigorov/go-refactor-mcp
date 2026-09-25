@@ -16,6 +16,7 @@ type MoveDirOptions struct {
 	SourceDir string
 	DestDir   string
 	BuildTags string
+	Dir       string // Optional root directory of the module or workspace
 }
 
 // MoveDirectory moves a directory and updates all import paths referencing it across the workspace.
@@ -47,7 +48,12 @@ func MoveDirectory(opts MoveDirOptions) error {
 		return fmt.Errorf("source path %s is a file, not a directory; use 'move_file' instead", absSource)
 	}
 
-	ws, err := FindWorkspace(absSource)
+	workspaceStart := absSource
+	if strings.TrimSpace(opts.Dir) != "" {
+		workspaceStart = strings.TrimSpace(opts.Dir)
+	}
+
+	ws, err := FindWorkspace(workspaceStart)
 	if err != nil {
 		return fmt.Errorf("failed finding workspace: %w", err)
 	}

@@ -59,6 +59,9 @@ func DiscoverWorkspaceBuildTags(dir string) ([]string, error) {
 			if name == "vendor" || name == ".git" || name == ".github" || name == "node_modules" || (strings.HasPrefix(name, ".") && name != ".") {
 				return filepath.SkipDir
 			}
+			if path != dir && hasGitBoundary(path) {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if !strings.HasSuffix(path, ".go") || IsVendorPath(path) {

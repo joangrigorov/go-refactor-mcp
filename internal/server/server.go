@@ -50,6 +50,7 @@ func registerTools(s *server.MCPServer) {
 		mcp.WithString("source_file", mcp.Required(), mcp.Description("Source .go file path")),
 		mcp.WithString("dest_dir", mcp.Description("Destination directory path (optional if new_name is provided)")),
 		mcp.WithString("new_name", mcp.Description("Optional new filename (e.g. 'saga.go') for renaming in-place or upon move")),
+		mcp.WithString("directory", mcp.Description("Optional root directory of the module or workspace")),
 		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(moveFileTool, handleMoveFile)
@@ -59,6 +60,7 @@ func registerTools(s *server.MCPServer) {
 		mcp.WithDescription("Moves an entire package directory and updates all import paths referencing this package across the module."),
 		mcp.WithString("source_dir", mcp.Required(), mcp.Description("Source directory path")),
 		mcp.WithString("dest_dir", mcp.Required(), mcp.Description("Destination directory path")),
+		mcp.WithString("directory", mcp.Description("Optional root directory of the module or workspace")),
 		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(moveDirTool, handleMoveDirectory)
@@ -101,6 +103,7 @@ func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	src := strings.TrimSpace(req.GetString("source_file", ""))
 	dest := strings.TrimSpace(req.GetString("dest_dir", ""))
 	newName := strings.TrimSpace(req.GetString("new_name", ""))
+	dir := strings.TrimSpace(req.GetString("directory", ""))
 	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
 
 	if src == "" {
@@ -117,6 +120,7 @@ func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 		SourceFile: src,
 		DestDir:    dest,
 		NewName:    newName,
+		Dir:        dir,
 		BuildTags:  buildTags,
 	}
 
@@ -134,6 +138,7 @@ func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	src := strings.TrimSpace(req.GetString("source_dir", ""))
 	dest := strings.TrimSpace(req.GetString("dest_dir", ""))
+	dir := strings.TrimSpace(req.GetString("directory", ""))
 	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
 
 	if src == "" {
@@ -146,6 +151,7 @@ func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	opts := refactor.MoveDirOptions{
 		SourceDir: src,
 		DestDir:   dest,
+		Dir:       dir,
 		BuildTags: buildTags,
 	}
 

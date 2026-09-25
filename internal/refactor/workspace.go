@@ -56,6 +56,11 @@ func FindWorkspace(startDir string) (*Workspace, error) {
 	return nil, fmt.Errorf("go.mod not found starting from %s", startDir)
 }
 
+func hasGitBoundary(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
 func searchWorkspaceRoots(startDir string) (string, []string) {
 	var workRoot string
 	var modRoots []string
@@ -67,8 +72,19 @@ func searchWorkspaceRoots(startDir string) (string, []string) {
 				workRoot = curr
 			}
 		}
-		if _, err := os.Stat(filepath.Join(curr, "go.mod")); err == nil {
-			modRoots = append(modRoots, curr)
+		if len(modRoots) == 0 {
+			if _, err := os.Stat(filepath.Join(curr, "go.mod")); err == nil {
+				modRoots = append(modRoots, curr)
+			}
+		}
+		// If we encounter a .git boundary, do not climb higher looking for go.mod
+		if hasGitBoundary(curr) {
+			if workRoot == "" {
+				if _, err := os.Stat(filepath.Join(curr, "go.work")); err == nil {
+					workRoot = curr
+				}
+			}
+			break
 		}
 		parent := filepath.Dir(curr)
 		if parent == curr {
@@ -77,13 +93,9 @@ func searchWorkspaceRoots(startDir string) (string, []string) {
 		curr = parent
 	}
 
-	// If no go.work was found, check if startDir or its parent is part of a multi-module monorepo
-	if workRoot == "" && len(modRoots) <= 1 {
-		searchBase := startDir
-		if len(modRoots) == 1 {
-			searchBase = filepath.Dir(modRoots[0])
-		}
-		discovered := discoverSubModules(searchBase)
+	// If no go.work was found and startDir had no enclosing go.mod, check if startDir is the root of a multi-module monorepo
+	if workRoot == "" && len(modRoots) == 0 {
+		discovered := discoverSubModules(startDir)
 		if len(discovered) > 1 {
 			modRoots = discovered
 		}
@@ -101,6 +113,9 @@ func discoverSubModules(baseDir string) []string {
 		if info.IsDir() {
 			name := info.Name()
 			if name == "vendor" || name == ".git" || name == ".github" || name == "node_modules" || (strings.HasPrefix(name, ".") && name != ".") {
+				return filepath.SkipDir
+			}
+			if path != baseDir && hasGitBoundary(path) {
 				return filepath.SkipDir
 			}
 			rel, relErr := filepath.Rel(baseDir, path)
@@ -271,6 +286,9 @@ func (ws *Workspace) WalkGoFiles(fn func(path string, mod *ModuleInfo) error) er
 			if info.IsDir() {
 				name := info.Name()
 				if name == "vendor" || name == ".git" || name == ".github" || name == "node_modules" || (strings.HasPrefix(name, ".") && name != ".") {
+					return filepath.SkipDir
+				}
+				if path != mod.Root && hasGitBoundary(path) {
 					return filepath.SkipDir
 				}
 				return nil
