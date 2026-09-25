@@ -50,6 +50,7 @@ func CallC() {
 
 	// Moving pkgA into pkgB: pkgB would import pkgC, while pkgC imports pkgB -> cycle!
 	opts := refactor.MoveDirOptions{
+		Dir:       tempDir,
 		SourceDir: pkgADir,
 		DestDir:   pkgBDir,
 	}
@@ -96,6 +97,7 @@ func UseTarget() {
 	verifyCompilation(t, tempDir)
 
 	opts := refactor.MoveDirOptions{
+		Dir:       tempDir,
 		SourceDir: sourceDir,
 		DestDir:   targetDir,
 	}
@@ -138,6 +140,7 @@ func Consume() {
 	verifyCompilation(t, tempDir)
 
 	opts := refactor.MoveDirOptions{
+		Dir:       tempDir,
 		SourceDir: sourceDir,
 		DestDir:   destDir,
 	}
@@ -173,6 +176,7 @@ func TestMoveDirectory_MCPTool_CyclicDependencyError(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(pkgADir, "a.go"), []byte("package pkgA\n\nimport \"example.com/mcpcyelemove/pkgC\"\n\nfunc CallC() { pkgC.CallB() }\n"), 0600)
 
 	res := callMCPTool(t, s, "move_directory", map[string]any{
+		"directory":  tempDir,
 		"source_dir": pkgADir,
 		"dest_dir":   pkgBDir,
 	})

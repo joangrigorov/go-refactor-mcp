@@ -16,24 +16,56 @@ type MoveDirOptions struct {
 	SourceDir string
 	DestDir   string
 	BuildTags string
-	Dir       string // Optional root directory of the module or workspace
+	Dir       string // Root directory of the module or workspace (required)
 }
 
 // MoveDirectory moves a directory and updates all import paths referencing it across the workspace.
 func MoveDirectory(opts MoveDirOptions) error {
+	dirTrimmed := strings.TrimSpace(opts.Dir)
+	if dirTrimmed == "" {
+		return fmt.Errorf("directory parameter is required")
+	}
+
+	absDir, err := filepath.Abs(dirTrimmed)
+	if err != nil {
+		return fmt.Errorf("invalid directory path: %w", err)
+	}
+
+	dirInfo, err := os.Stat(absDir)
+	if err != nil {
+		return fmt.Errorf("workspace directory does not exist: %w", err)
+	}
+	if !dirInfo.IsDir() {
+		return fmt.Errorf("workspace directory is not a directory: %s", absDir)
+	}
+	opts.Dir = absDir
+
 	cleanSource := strings.TrimSpace(opts.SourceDir)
 	cleanDest := strings.TrimSpace(opts.DestDir)
 	if cleanSource == "" || cleanDest == "" {
 		return fmt.Errorf("both 'source_dir' and 'dest_dir' are required to move a directory")
 	}
 
-	absSource, err := filepath.Abs(cleanSource)
-	if err != nil {
-		return fmt.Errorf("invalid source dir: %w", err)
+	absSource := cleanSource
+	if !filepath.IsAbs(absSource) {
+		absSource = filepath.Join(absDir, absSource)
 	}
-	absDest, err := filepath.Abs(cleanDest)
-	if err != nil {
-		return fmt.Errorf("invalid dest dir: %w", err)
+	absSource = filepath.Clean(absSource)
+
+	relSource, err := filepath.Rel(absDir, absSource)
+	if err != nil || relSource == ".." || strings.HasPrefix(relSource, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("source directory %q is outside workspace directory %q", absSource, absDir)
+	}
+
+	absDest := cleanDest
+	if !filepath.IsAbs(absDest) {
+		absDest = filepath.Join(absDir, absDest)
+	}
+	absDest = filepath.Clean(absDest)
+
+	relDest, relErr := filepath.Rel(absDir, absDest)
+	if relErr != nil || relDest == ".." || strings.HasPrefix(relDest, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("destination directory %q is outside workspace directory %q", absDest, absDir)
 	}
 
 	if absSource == absDest {
@@ -48,12 +80,7 @@ func MoveDirectory(opts MoveDirOptions) error {
 		return fmt.Errorf("source path %s is a file, not a directory; use 'move_file' instead", absSource)
 	}
 
-	workspaceStart := absSource
-	if strings.TrimSpace(opts.Dir) != "" {
-		workspaceStart = strings.TrimSpace(opts.Dir)
-	}
-
-	ws, err := FindWorkspace(workspaceStart)
+	ws, err := FindWorkspaceWithCeiling(absDir, absDir)
 	if err != nil {
 		return fmt.Errorf("failed finding workspace: %w", err)
 	}

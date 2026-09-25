@@ -59,10 +59,30 @@ func TestHandleRenameSymbol(t *testing.T) {
 func TestHandleMoveFile(t *testing.T) {
 	ctx := context.Background()
 
+	// Missing directory argument
+	reqMissingDir := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "move_file",
+			Arguments: map[string]any{
+				"source_file": "nonexistent.go",
+				"dest_dir":    "somedir",
+			},
+		},
+	}
+	resMissingDir, err := handleMoveFile(ctx, reqMissingDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resMissingDir.IsError {
+		t.Errorf("expected error result when directory is missing")
+	}
+
+	// With directory argument, nonexistent file
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name: "move_file",
 			Arguments: map[string]any{
+				"directory":   t.TempDir(),
 				"source_file": "nonexistent.go",
 				"dest_dir":    "somedir",
 			},
@@ -81,10 +101,30 @@ func TestHandleMoveFile(t *testing.T) {
 func TestHandleMoveDirectory(t *testing.T) {
 	ctx := context.Background()
 
+	// Missing directory argument
+	reqMissingDir := mcp.CallToolRequest{
+		Params: mcp.CallToolParams{
+			Name: "move_directory",
+			Arguments: map[string]any{
+				"source_dir": "nonexistent_dir",
+				"dest_dir":   "somedir",
+			},
+		},
+	}
+	resMissingDir, err := handleMoveDirectory(ctx, reqMissingDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resMissingDir.IsError {
+		t.Errorf("expected error result when directory is missing")
+	}
+
+	// With directory argument, nonexistent directory
 	req := mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name: "move_directory",
 			Arguments: map[string]any{
+				"directory":  t.TempDir(),
 				"source_dir": "nonexistent_dir",
 				"dest_dir":   "somedir",
 			},

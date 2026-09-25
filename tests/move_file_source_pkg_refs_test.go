@@ -43,6 +43,7 @@ func Validate() error {
 	// Move errors.go from pkg/auth to pkg/autherrs
 	autherrsDir := filepath.Join(tempDir, "pkg", "autherrs")
 	opts := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: errorsFile,
 		DestDir:    autherrsDir,
 	}

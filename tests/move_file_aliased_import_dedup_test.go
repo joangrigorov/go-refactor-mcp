@@ -42,6 +42,7 @@ func Process(f followed_pkg.ClubFollowed, u unfollowed_pkg.ClubUnfollowed) {}
 
 	// Move 5: Move club_followed.go to following_events
 	opts5 := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: folFile,
 		DestDir:    destDir,
 	}
@@ -51,6 +52,7 @@ func Process(f followed_pkg.ClubFollowed, u unfollowed_pkg.ClubUnfollowed) {}
 
 	// Move 6: Move club_unfollowed.go to following_events
 	opts6 := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: unfolFile,
 		DestDir:    destDir,
 	}

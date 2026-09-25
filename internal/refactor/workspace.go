@@ -29,6 +29,11 @@ type Workspace struct {
 
 // FindWorkspace finds the enclosing workspace (go.work, monorepo, or go.mod) starting from startDir.
 func FindWorkspace(startDir string) (*Workspace, error) {
+	return FindWorkspaceWithCeiling(startDir, "")
+}
+
+// FindWorkspaceWithCeiling finds the enclosing workspace starting from startDir without climbing higher than ceilingDir.
+func FindWorkspaceWithCeiling(startDir, ceilingDir string) (*Workspace, error) {
 	absStart, err := filepath.Abs(startDir)
 	if err != nil {
 		return nil, fmt.Errorf("invalid directory path: %w", err)
@@ -39,10 +44,23 @@ func FindWorkspace(startDir string) (*Workspace, error) {
 		absStart = filepath.Dir(absStart)
 	}
 
-	workRoot, modRoots := searchWorkspaceRoots(absStart)
+	var absCeiling string
+	if strings.TrimSpace(ceilingDir) != "" {
+		c, cErr := filepath.Abs(ceilingDir)
+		if cErr != nil {
+			return nil, fmt.Errorf("invalid ceiling directory path: %w", cErr)
+		}
+		absCeiling = c
+		rel, relErr := filepath.Rel(absCeiling, absStart)
+		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("directory %s is outside workspace ceiling %s", absStart, absCeiling)
+		}
+	}
+
+	workRoot, modRoots := searchWorkspaceRoots(absStart, absCeiling)
 
 	if workRoot != "" {
-		return loadGoWorkWorkspace(workRoot)
+		return loadGoWorkWorkspace(workRoot, absCeiling)
 	}
 
 	if len(modRoots) > 1 {
@@ -61,7 +79,7 @@ func hasGitBoundary(dir string) bool {
 	return err == nil
 }
 
-func searchWorkspaceRoots(startDir string) (string, []string) {
+func searchWorkspaceRoots(startDir, ceilingDir string) (string, []string) {
 	var workRoot string
 	var modRoots []string
 
@@ -76,6 +94,10 @@ func searchWorkspaceRoots(startDir string) (string, []string) {
 			if _, err := os.Stat(filepath.Join(curr, "go.mod")); err == nil {
 				modRoots = append(modRoots, curr)
 			}
+		}
+		// If ceiling is reached, do not climb higher.
+		if ceilingDir != "" && curr == ceilingDir {
+			break
 		}
 		// If we encounter a .git boundary, do not climb higher looking for go.mod
 		if hasGitBoundary(curr) {
@@ -131,7 +153,7 @@ func discoverSubModules(baseDir string) []string {
 	return modRoots
 }
 
-func loadGoWorkWorkspace(workRoot string) (*Workspace, error) {
+func loadGoWorkWorkspace(workRoot, ceilingDir string) (*Workspace, error) {
 	workPath := filepath.Join(workRoot, "go.work")
 	content, err := os.ReadFile(workPath) // #nosec G304
 	if err != nil {
@@ -153,6 +175,12 @@ func loadGoWorkWorkspace(workRoot string) (*Workspace, error) {
 		absModRoot, absErr := filepath.Abs(usePath)
 		if absErr != nil {
 			continue
+		}
+		if ceilingDir != "" {
+			rel, relErr := filepath.Rel(ceilingDir, absModRoot)
+			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				continue
+			}
 		}
 		modInfo, parseErr := parseModuleInfo(absModRoot)
 		if parseErr == nil {

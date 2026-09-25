@@ -218,6 +218,7 @@ func TestMCPIntegration_MoveFile_HappyPath(t *testing.T) {
 
 	// Call move_file
 	res := callMCPTool(t, s, "move_file", map[string]any{
+		"directory":   tempDir,
 		"source_file": serviceFile,
 		"dest_dir":    destDir,
 	})
@@ -255,6 +256,7 @@ func TestMCPIntegration_MoveFile_RenameInPlace(t *testing.T) {
 	_ = os.WriteFile(oldFile, []byte("package main\n\nfunc main() {}\n"), 0600)
 
 	res := callMCPTool(t, s, "move_file", map[string]any{
+		"directory":   tempDir,
 		"source_file": oldFile,
 		"new_name":    "app.go",
 	})
@@ -277,8 +279,18 @@ func TestMCPIntegration_MoveFile_ActionableErrors(t *testing.T) {
 	s := server.NewServer()
 	tempDir := t.TempDir()
 
-	// 1. Missing source_file
+	// 0. Missing directory
 	res := callMCPTool(t, s, "move_file", map[string]any{
+		"source_file": "sample.go",
+		"dest_dir":    tempDir,
+	})
+	if !res.IsError || !strings.Contains(getResultText(t, res), "argument 'directory' is required") {
+		t.Errorf("expected directory required error, got: %s", getResultText(t, res))
+	}
+
+	// 1. Missing source_file
+	res = callMCPTool(t, s, "move_file", map[string]any{
+		"directory":   tempDir,
 		"source_file": "",
 		"dest_dir":    tempDir,
 	})
@@ -290,6 +302,7 @@ func TestMCPIntegration_MoveFile_ActionableErrors(t *testing.T) {
 	readmeFile := filepath.Join(tempDir, "README.md")
 	_ = os.WriteFile(readmeFile, []byte("# Docs"), 0600)
 	res = callMCPTool(t, s, "move_file", map[string]any{
+		"directory":   tempDir,
 		"source_file": readmeFile,
 		"dest_dir":    tempDir,
 	})
@@ -301,6 +314,7 @@ func TestMCPIntegration_MoveFile_ActionableErrors(t *testing.T) {
 	sampleFile := filepath.Join(tempDir, "sample.go")
 	_ = os.WriteFile(sampleFile, []byte("package main\n"), 0600)
 	res = callMCPTool(t, s, "move_file", map[string]any{
+		"directory":   tempDir,
 		"source_file": sampleFile,
 	})
 	if !res.IsError || !strings.Contains(getResultText(t, res), "at least one of 'dest_dir' (to move file) or 'new_name'") {
@@ -316,11 +330,24 @@ func TestMCPIntegration_MoveFile_ActionableErrors(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte("module example.com/colltest\n\ngo 1.22.0\n"), 0600)
 
 	res = callMCPTool(t, s, "move_file", map[string]any{
+		"directory":   tempDir,
 		"source_file": sampleFile,
 		"dest_dir":    destDir,
 	})
 	if !res.IsError || !strings.Contains(getResultText(t, res), "already exists") {
 		t.Errorf("expected destination file already exists error, got: %s", getResultText(t, res))
+	}
+
+	// 5. Source file outside workspace directory
+	outsideFile := filepath.Join(t.TempDir(), "outside.go")
+	_ = os.WriteFile(outsideFile, []byte("package outside\n"), 0600)
+	res = callMCPTool(t, s, "move_file", map[string]any{
+		"directory":   tempDir,
+		"source_file": outsideFile,
+		"dest_dir":    destDir,
+	})
+	if !res.IsError || !strings.Contains(getResultText(t, res), "is outside workspace directory") {
+		t.Errorf("expected outside workspace error, got: %s", getResultText(t, res))
 	}
 }
 
@@ -352,6 +379,7 @@ func Compute() {
 	destDir := filepath.Join(tempDir, "pkg", "mathops")
 
 	res := callMCPTool(t, s, "move_directory", map[string]any{
+		"directory":  tempDir,
 		"source_dir": sourceDir,
 		"dest_dir":   destDir,
 	})
@@ -372,8 +400,18 @@ func TestMCPIntegration_MoveDirectory_ActionableErrors(t *testing.T) {
 	s := server.NewServer()
 	tempDir := t.TempDir()
 
-	// Missing parameters
+	// 0. Missing directory
 	res := callMCPTool(t, s, "move_directory", map[string]any{
+		"source_dir": "mathops",
+		"dest_dir":   tempDir,
+	})
+	if !res.IsError || !strings.Contains(getResultText(t, res), "argument 'directory' is required") {
+		t.Errorf("expected directory required error, got: %s", getResultText(t, res))
+	}
+
+	// 1. Missing source_dir
+	res = callMCPTool(t, s, "move_directory", map[string]any{
+		"directory":  tempDir,
 		"source_dir": "",
 		"dest_dir":   tempDir,
 	})
@@ -381,15 +419,27 @@ func TestMCPIntegration_MoveDirectory_ActionableErrors(t *testing.T) {
 		t.Errorf("expected missing source_dir error, got: %s", getResultText(t, res))
 	}
 
-	// Source is a file, not a directory -> should suggest move_file
+	// 2. Source is a file, not a directory -> should suggest move_file
 	filePath := filepath.Join(tempDir, "app.go")
 	_ = os.WriteFile(filePath, []byte("package main\n"), 0600)
 	res = callMCPTool(t, s, "move_directory", map[string]any{
+		"directory":  tempDir,
 		"source_dir": filePath,
 		"dest_dir":   filepath.Join(tempDir, "dest"),
 	})
 	if !res.IsError || !strings.Contains(getResultText(t, res), "is a file, not a directory; use 'move_file' instead") {
 		t.Errorf("expected hint to use move_file, got: %s", getResultText(t, res))
+	}
+
+	// 3. Source directory outside workspace
+	outsideDir := t.TempDir()
+	res = callMCPTool(t, s, "move_directory", map[string]any{
+		"directory":  tempDir,
+		"source_dir": outsideDir,
+		"dest_dir":   filepath.Join(tempDir, "dest"),
+	})
+	if !res.IsError || !strings.Contains(getResultText(t, res), "is outside workspace directory") {
+		t.Errorf("expected outside workspace directory error, got: %s", getResultText(t, res))
 	}
 }
 

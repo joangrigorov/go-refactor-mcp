@@ -55,6 +55,7 @@ use (
 	// 4. Move calc.go from moduleA/math to moduleB/engine
 	destDir := filepath.Join(modBDir, "engine")
 	opts := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: calcFile,
 		DestDir:    destDir,
 	}

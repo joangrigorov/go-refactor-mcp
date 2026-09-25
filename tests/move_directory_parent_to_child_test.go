@@ -44,6 +44,7 @@ func main() {
 	destDir := filepath.Join(sagasDir, "order_payment")
 
 	opts := refactor.MoveDirOptions{
+		Dir:       tempDir,
 		SourceDir: sagasDir,
 		DestDir:   destDir,
 	}

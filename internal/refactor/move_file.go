@@ -20,22 +20,50 @@ type MoveFileOptions struct {
 	DestDir    string
 	NewName    string
 	BuildTags  string
-	Dir        string // Optional root directory of the module or workspace
+	Dir        string // Root directory of the module or workspace (required)
 }
 
-// MoveFile moves SourceFile (and associated _test.go file if present) to DestDir and/or renames it to NewName.
-func MoveFile(opts MoveFileOptions) error {
-	absSource, err := filepath.Abs(opts.SourceFile)
+func validateMoveFilePaths(opts MoveFileOptions) (string, string, string, string, error) {
+	dirTrimmed := strings.TrimSpace(opts.Dir)
+	if dirTrimmed == "" {
+		return "", "", "", "", fmt.Errorf("directory parameter is required")
+	}
+
+	absDir, err := filepath.Abs(dirTrimmed)
 	if err != nil {
-		return fmt.Errorf("invalid source file path: %w", err)
+		return "", "", "", "", fmt.Errorf("invalid directory path: %w", err)
+	}
+
+	dirInfo, err := os.Stat(absDir)
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("workspace directory does not exist: %w", err)
+	}
+	if !dirInfo.IsDir() {
+		return "", "", "", "", fmt.Errorf("workspace directory is not a directory: %s", absDir)
+	}
+
+	srcTrimmed := strings.TrimSpace(opts.SourceFile)
+	if srcTrimmed == "" {
+		return "", "", "", "", fmt.Errorf("source file path is required")
+	}
+
+	absSource := srcTrimmed
+	if !filepath.IsAbs(absSource) {
+		absSource = filepath.Join(absDir, absSource)
+	}
+	absSource = filepath.Clean(absSource)
+
+	relSource, err := filepath.Rel(absDir, absSource)
+	if err != nil || relSource == ".." || strings.HasPrefix(relSource, ".."+string(filepath.Separator)) {
+		return "", "", "", "", fmt.Errorf("source file %q is outside workspace directory %q", absSource, absDir)
 	}
 
 	info, statErr := os.Stat(absSource)
 	if statErr != nil {
-		return fmt.Errorf("source file does not exist: %w", statErr)
+		return "", "", "", "", fmt.Errorf("source file does not exist: %w", statErr)
 	}
 	if info.IsDir() {
-		return fmt.Errorf("source path is a directory, use MoveDirectory instead: %s", absSource)
+		return "", "", "", "", fmt.Errorf("source path is a directory, use MoveDirectory instead: %s", absSource)
 	}
 
 	sourceDir := filepath.Dir(absSource)
@@ -43,16 +71,20 @@ func MoveFile(opts MoveFileOptions) error {
 	destTrimmed := strings.TrimSpace(opts.DestDir)
 	nameTrimmed := strings.TrimSpace(opts.NewName)
 	if destTrimmed == "" && nameTrimmed == "" {
-		return fmt.Errorf("at least one of 'dest_dir' or 'new_name' is required to move or rename a file")
+		return "", "", "", "", fmt.Errorf("at least one of 'dest_dir' or 'new_name' is required to move or rename a file")
 	}
 
 	absDestDir := sourceDir
 	if destTrimmed != "" {
-		d, err := filepath.Abs(opts.DestDir)
-		if err != nil {
-			return fmt.Errorf("invalid destination directory path: %w", err)
+		d := destTrimmed
+		if !filepath.IsAbs(d) {
+			d = filepath.Join(absDir, d)
 		}
-		absDestDir = d
+		absDestDir = filepath.Clean(d)
+		relDest, relErr := filepath.Rel(absDir, absDestDir)
+		if relErr != nil || relDest == ".." || strings.HasPrefix(relDest, ".."+string(filepath.Separator)) {
+			return "", "", "", "", fmt.Errorf("destination directory %q is outside workspace directory %q", absDestDir, absDir)
+		}
 	}
 
 	newName := nameTrimmed
@@ -70,15 +102,24 @@ func MoveFile(opts MoveFileOptions) error {
 	}
 
 	if sourceDir == absDestDir && origBaseName == targetBaseName {
-		return fmt.Errorf("destination file path is identical to source file path: %s", absSource)
+		return "", "", "", "", fmt.Errorf("destination file path is identical to source file path: %s", absSource)
 	}
 
-	workspaceStart := sourceDir
-	if strings.TrimSpace(opts.Dir) != "" {
-		workspaceStart = strings.TrimSpace(opts.Dir)
-	}
+	return absDir, absSource, absDestDir, newName, nil
+}
 
-	ws, err := FindWorkspace(workspaceStart)
+// MoveFile moves SourceFile (and associated _test.go file if present) to DestDir and/or renames it to NewName.
+func MoveFile(opts MoveFileOptions) error {
+	absDir, absSource, absDestDir, newName, err := validateMoveFilePaths(opts)
+	if err != nil {
+		return err
+	}
+	opts.Dir = absDir
+
+	sourceDir := filepath.Dir(absSource)
+	origBaseName := filepath.Base(absSource)
+
+	ws, err := FindWorkspaceWithCeiling(absDir, absDir)
 	if err != nil {
 		return fmt.Errorf("failed finding workspace: %w", err)
 	}

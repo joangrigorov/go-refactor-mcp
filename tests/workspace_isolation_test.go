@@ -172,3 +172,127 @@ type ServerConfig struct {
 		t.Errorf("project-a was modified unexpectedly! Content:\n%s", string(paAfter))
 	}
 }
+
+func TestCeilingBoundaryEnforcement(t *testing.T) {
+	parentDir := t.TempDir()
+
+	// Parent has go.work
+	_ = os.WriteFile(filepath.Join(parentDir, "go.work"), []byte("go 1.22.0\n\nuse (\n\t./child-a\n\t./child-b\n)\n"), 0600)
+
+	childA := filepath.Join(parentDir, "child-a")
+	_ = os.MkdirAll(childA, 0750)
+	_ = os.WriteFile(filepath.Join(childA, "go.mod"), []byte("module example.com/childA\n\ngo 1.22.0\n"), 0600)
+
+	childB := filepath.Join(parentDir, "child-b")
+	_ = os.MkdirAll(childB, 0750)
+	_ = os.WriteFile(filepath.Join(childB, "go.mod"), []byte("module example.com/childB\n\ngo 1.22.0\n"), 0600)
+
+	// When finding workspace for childA with childA as ceiling, it MUST NOT discover parent go.work
+	ws, err := refactor.FindWorkspaceWithCeiling(childA, childA)
+	if err != nil {
+		t.Fatalf("FindWorkspaceWithCeiling failed: %v", err)
+	}
+	if ws.IsWork {
+		t.Errorf("expected standalone module workspace, but got go.work workspace")
+	}
+	if len(ws.Modules) != 1 || ws.Modules[0].Root != childA {
+		t.Errorf("expected only childA module, got %d modules", len(ws.Modules))
+	}
+
+	// Calling with startDir outside ceiling should fail
+	_, errOutside := refactor.FindWorkspaceWithCeiling(childB, childA)
+	if errOutside == nil {
+		t.Errorf("expected error when startDir is outside ceiling, got nil")
+	}
+}
+
+func TestBoundaryValidationErrors(t *testing.T) {
+	workspaceDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(workspaceDir, "go.mod"), []byte("module example.com/boundary\n\ngo 1.22.0\n"), 0600)
+
+	localSrc := filepath.Join(workspaceDir, "local.go")
+	_ = os.WriteFile(localSrc, []byte("package boundary\n\nfunc Local() {}\n"), 0600)
+
+	outsideDir := t.TempDir()
+	outsideSrc := filepath.Join(outsideDir, "outside.go")
+	_ = os.WriteFile(outsideSrc, []byte("package outside\n\nfunc Outside() {}\n"), 0600)
+
+	// 1. MoveFile: Missing Dir
+	err := refactor.MoveFile(refactor.MoveFileOptions{
+		SourceFile: localSrc,
+		DestDir:    workspaceDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "directory parameter is required") {
+		t.Errorf("expected directory required error, got: %v", err)
+	}
+
+	// 2. MoveFile: Source outside Dir
+	err = refactor.MoveFile(refactor.MoveFileOptions{
+		Dir:        workspaceDir,
+		SourceFile: outsideSrc,
+		DestDir:    workspaceDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "is outside workspace directory") {
+		t.Errorf("expected source outside workspace error, got: %v", err)
+	}
+
+	// 3. MoveFile: Dest outside Dir
+	err = refactor.MoveFile(refactor.MoveFileOptions{
+		Dir:        workspaceDir,
+		SourceFile: localSrc,
+		DestDir:    outsideDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "is outside workspace directory") {
+		t.Errorf("expected dest outside workspace error, got: %v", err)
+	}
+
+	// 4. MoveDirectory: Missing Dir
+	err = refactor.MoveDirectory(refactor.MoveDirOptions{
+		SourceDir: workspaceDir,
+		DestDir:   filepath.Join(workspaceDir, "dest"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "directory parameter is required") {
+		t.Errorf("expected directory required error, got: %v", err)
+	}
+
+	// 5. MoveDirectory: Source outside Dir
+	err = refactor.MoveDirectory(refactor.MoveDirOptions{
+		Dir:       workspaceDir,
+		SourceDir: outsideDir,
+		DestDir:   filepath.Join(workspaceDir, "dest"),
+	})
+	if err == nil || !strings.Contains(err.Error(), "is outside workspace directory") {
+		t.Errorf("expected source outside workspace error, got: %v", err)
+	}
+
+	// 6. MoveDirectory: Dest outside Dir
+	err = refactor.MoveDirectory(refactor.MoveDirOptions{
+		Dir:       workspaceDir,
+		SourceDir: workspaceDir,
+		DestDir:   outsideDir,
+	})
+	if err == nil || !strings.Contains(err.Error(), "is outside workspace directory") {
+		t.Errorf("expected dest outside workspace error, got: %v", err)
+	}
+
+	// 7. RenameSymbol: Missing Dir
+	err = refactor.RenameSymbol(refactor.RenameOptions{
+		From: "Local",
+		To:   "NewLocal",
+	})
+	if err == nil || !strings.Contains(err.Error(), "directory parameter is required") {
+		t.Errorf("expected directory required error, got: %v", err)
+	}
+
+	// 8. RenameSymbol: File outside Dir
+	err = refactor.RenameSymbol(refactor.RenameOptions{
+		Dir:  workspaceDir,
+		File: outsideSrc,
+		From: "Local",
+		To:   "NewLocal",
+	})
+	if err == nil || !strings.Contains(err.Error(), "is outside workspace directory") {
+		t.Errorf("expected file outside workspace error, got: %v", err)
+	}
+}
+

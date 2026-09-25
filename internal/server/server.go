@@ -47,10 +47,10 @@ func registerTools(s *server.MCPServer) {
 	// 2. move_file
 	moveFileTool := mcp.NewTool("move_file",
 		mcp.WithDescription("Moves or renames a .go file (and associated _test.go) to a new directory or filename, updating package clauses, build tags, and imports without creating cyclic dependencies."),
+		mcp.WithString("directory", mcp.Required(), mcp.Description("Root directory of the module or workspace")),
 		mcp.WithString("source_file", mcp.Required(), mcp.Description("Source .go file path")),
 		mcp.WithString("dest_dir", mcp.Description("Destination directory path (optional if new_name is provided)")),
 		mcp.WithString("new_name", mcp.Description("Optional new filename (e.g. 'saga.go') for renaming in-place or upon move")),
-		mcp.WithString("directory", mcp.Description("Optional root directory of the module or workspace")),
 		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(moveFileTool, handleMoveFile)
@@ -58,9 +58,9 @@ func registerTools(s *server.MCPServer) {
 	// 3. move_directory
 	moveDirTool := mcp.NewTool("move_directory",
 		mcp.WithDescription("Moves an entire package directory and updates all import paths referencing this package across the module."),
+		mcp.WithString("directory", mcp.Required(), mcp.Description("Root directory of the module or workspace")),
 		mcp.WithString("source_dir", mcp.Required(), mcp.Description("Source directory path")),
 		mcp.WithString("dest_dir", mcp.Required(), mcp.Description("Destination directory path")),
-		mcp.WithString("directory", mcp.Description("Optional root directory of the module or workspace")),
 		mcp.WithString("build_tags", mcp.Description("Optional build tags override (e.g. 'integration,e2e')")),
 	)
 	s.AddTool(moveDirTool, handleMoveDirectory)
@@ -106,6 +106,9 @@ func handleMoveFile(_ context.Context, req mcp.CallToolRequest) (*mcp.CallToolRe
 	dir := strings.TrimSpace(req.GetString("directory", ""))
 	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
 
+	if dir == "" {
+		return mcp.NewToolResultError("move_file: argument 'directory' is required. Specify the root directory of the Go module or workspace (e.g. '.')"), nil
+	}
 	if src == "" {
 		return mcp.NewToolResultError("move_file: argument 'source_file' is required. Specify the relative or absolute path to a .go file"), nil
 	}
@@ -141,6 +144,9 @@ func handleMoveDirectory(_ context.Context, req mcp.CallToolRequest) (*mcp.CallT
 	dir := strings.TrimSpace(req.GetString("directory", ""))
 	buildTags := strings.TrimSpace(req.GetString("build_tags", ""))
 
+	if dir == "" {
+		return mcp.NewToolResultError("move_directory: argument 'directory' is required. Specify the root directory of the Go module or workspace (e.g. '.')"), nil
+	}
 	if src == "" {
 		return mcp.NewToolResultError("move_directory: argument 'source_dir' is required. Specify the source directory path"), nil
 	}

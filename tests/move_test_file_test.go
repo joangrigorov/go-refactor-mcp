@@ -25,6 +25,7 @@ func TestMoveTestFile(t *testing.T) {
 	_ = os.WriteFile(testFile, []byte("package pkgold_test\n\nimport (\n\t\"testing\"\n)\n\nfunc TestAdd(t *testing.T) {}\n"), 0600)
 
 	opts := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: mainFile,
 		DestDir:    destDir,
 	}
