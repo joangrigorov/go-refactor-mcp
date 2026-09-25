@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -13,7 +14,7 @@ import (
 
 // RenameOptions specifies arguments for symbol renaming.
 type RenameOptions struct {
-	Dir       string // Root directory of module/workspace
+	Dir       string // Root directory of module/workspace (required)
 	File      string // Target file path (optional if position is given)
 	Offset    int    // Byte offset or position in file (optional)
 	From      string // Old symbol name
@@ -24,6 +25,25 @@ type RenameOptions struct {
 
 // RenameSymbol renames a symbol (var, func, struct, interface, field, type param) across the module.
 func RenameSymbol(opts RenameOptions) error {
+	dirTrimmed := strings.TrimSpace(opts.Dir)
+	if dirTrimmed == "" {
+		return fmt.Errorf("directory parameter is required")
+	}
+
+	absDir, err := filepath.Abs(dirTrimmed)
+	if err != nil {
+		return fmt.Errorf("invalid directory path: %w", err)
+	}
+
+	dirInfo, err := os.Stat(absDir)
+	if err != nil {
+		return fmt.Errorf("workspace directory does not exist: %w", err)
+	}
+	if !dirInfo.IsDir() {
+		return fmt.Errorf("workspace directory is not a directory: %s", absDir)
+	}
+	opts.Dir = absDir
+
 	cleanFrom := strings.TrimSpace(opts.From)
 	cleanTo := strings.TrimSpace(opts.To)
 	if cleanFrom == "" || cleanTo == "" {
@@ -38,11 +58,24 @@ func RenameSymbol(opts RenameOptions) error {
 	opts.From = cleanFrom
 	opts.To = cleanTo
 
-	ws, err := FindWorkspace(opts.Dir)
+	if strings.TrimSpace(opts.File) != "" {
+		cleanFile := strings.TrimSpace(opts.File)
+		if !filepath.IsAbs(cleanFile) {
+			cleanFile = filepath.Join(absDir, cleanFile)
+		}
+		cleanFile = filepath.Clean(cleanFile)
+		relFile, relErr := filepath.Rel(absDir, cleanFile)
+		if relErr != nil || relFile == ".." || strings.HasPrefix(relFile, ".."+string(filepath.Separator)) {
+			return fmt.Errorf("file %q is outside workspace directory %q", cleanFile, absDir)
+		}
+		opts.File = cleanFile
+	}
+
+	ws, err := FindWorkspaceWithCeiling(absDir, absDir)
 	if err != nil {
 		ws = &Workspace{
-			Root:    opts.Dir,
-			Modules: []*ModuleInfo{{Root: opts.Dir, Path: ""}},
+			Root:    absDir,
+			Modules: []*ModuleInfo{{Root: absDir, Path: ""}},
 		}
 	}
 
@@ -116,6 +149,13 @@ func applyASTRename(pkgs []*packages.Package, targetObj types.Object, opts Renam
 			pos := pkg.Fset.Position(syntaxFile.Pos())
 			if pos.Filename == "" || IsVendorPath(pos.Filename) {
 				continue
+			}
+			absFile, absErr := filepath.Abs(pos.Filename)
+			if absErr == nil {
+				rel, relErr := filepath.Rel(opts.Dir, absFile)
+				if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+					continue
+				}
 			}
 			if writtenFiles[pos.Filename] {
 				continue

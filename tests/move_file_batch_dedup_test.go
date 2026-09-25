@@ -42,6 +42,7 @@ func Handle(e1 events_old.Event1, e2 events_old.Event2, e3 events_old.Event3) {}
 	// Move file1, file2, file3 sequentially to events_v1
 	for _, f := range []string{file1, file2, file3} {
 		opts := refactor.MoveFileOptions{
+			Dir:        tempDir,
 			SourceFile: f,
 			DestDir:    destDir,
 		}

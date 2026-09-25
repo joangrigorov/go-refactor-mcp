@@ -45,6 +45,7 @@ func Process(f foo.Foo) string {
 	// Move foo.go to pkg/baz
 	bazDir := filepath.Join(tempDir, "pkg", "baz")
 	opts := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: fooFile,
 		DestDir:    bazDir,
 	}

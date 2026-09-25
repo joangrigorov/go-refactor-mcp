@@ -23,8 +23,8 @@ When AI agents perform refactoring manually via search-and-replace, they often m
 | Tool Name | Parameters | Description |
 |---|---|---|
 | `rename_symbol` | `directory` (string, required)<br>`from` (string, required)<br>`to` (string, required)<br>`file` (string, optional)<br>`offset` (number, optional)<br>`build_tags` (string, optional) | Renames a variable, function, struct, interface, package, or generic type parameter across the entire module. Handles cross-package, aliased, dot-imported symbols, and platform-specific/build-tagged files. |
-| `move_file` | `source_file` (string, required)<br>`dest_dir` (string, optional)<br>`new_name` (string, optional)<br>`build_tags` (string, optional) | Moves or renames a `.go` file (and associated `_test.go`) to a new directory or filename. Preserves `//go:build` tags, updates package clauses, updates import paths across the workspace, and aborts if an import cycle is detected. |
-| `move_directory` | `source_dir` (string, required)<br>`dest_dir` (string, required)<br>`build_tags` (string, optional) | Moves an entire package directory, updates package declarations, updates all import paths referencing this package and its sub-packages workspace-wide, and aborts if an import cycle is detected. |
+| `move_file` | `directory` (string, required)<br>`source_file` (string, required)<br>`dest_dir` (string, optional)<br>`new_name` (string, optional)<br>`build_tags` (string, optional) | Moves or renames a `.go` file (and associated `_test.go`) to a new directory or filename. Preserves `//go:build` tags, updates package clauses, updates import paths across the workspace, and aborts if an import cycle is detected. |
+| `move_directory` | `directory` (string, required)<br>`source_dir` (string, required)<br>`dest_dir` (string, required)<br>`build_tags` (string, optional) | Moves an entire package directory, updates package declarations, updates all import paths referencing this package and its sub-packages workspace-wide, and aborts if an import cycle is detected. |
 
 ---
 

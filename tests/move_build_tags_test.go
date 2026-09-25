@@ -33,6 +33,7 @@ func SysCall() int {
 	}
 
 	opts := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: srcFile,
 		DestDir:    destDir,
 	}

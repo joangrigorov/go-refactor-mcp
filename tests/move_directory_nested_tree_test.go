@@ -47,6 +47,7 @@ func Handle(p policies.Policy, m member.Member) {}
 	// Move src/component/club to src/club_context
 	destDir := filepath.Join(tempDir, "src", "club_context")
 	opts := refactor.MoveDirOptions{
+		Dir:       tempDir,
 		SourceDir: clubDir,
 		DestDir:   destDir,
 	}

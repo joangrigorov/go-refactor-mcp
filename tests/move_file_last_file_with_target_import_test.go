@@ -41,6 +41,7 @@ type OrderPort interface {
 
 	// Step 1: Move order_payment_saga.go to sagas/order_payment
 	err := refactor.MoveFile(refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: fileSaga,
 		DestDir:    destDir,
 	})
@@ -50,6 +51,7 @@ type OrderPort interface {
 
 	// Step 2: Move output.go to sagas/order_payment
 	err = refactor.MoveFile(refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: fileOutput,
 		DestDir:    destDir,
 	})
@@ -68,6 +70,7 @@ type OrderPort interface {
 
 	// Step 3: Move ports.go (last remaining file in sagas, which imports order_payment) to sagas/order_payment
 	err = refactor.MoveFile(refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: filePorts,
 		DestDir:    destDir,
 	})

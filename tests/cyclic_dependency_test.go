@@ -53,6 +53,7 @@ func DoB() {}
 
 	// Moving a.go (which imports pkgC) into pkgB would make pkgB import pkgC (which imports pkgB), creating a cycle
 	opts := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: fileA,
 		DestDir:    pkgBDir,
 	}

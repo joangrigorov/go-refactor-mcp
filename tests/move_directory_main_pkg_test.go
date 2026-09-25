@@ -31,6 +31,7 @@ func main() {
 	destDir := filepath.Join(tempDir, "cmd", "api_gateway")
 
 	opts := refactor.MoveDirOptions{
+		Dir:       tempDir,
 		SourceDir: cmdDir,
 		DestDir:   destDir,
 	}

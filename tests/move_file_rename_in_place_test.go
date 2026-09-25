@@ -39,6 +39,7 @@ func TestRunSaga(t *testing.T) {
 
 	// In-place rename order_payment_saga.go to saga.go
 	err := refactor.MoveFile(refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: fileSaga,
 		NewName:    "saga.go",
 	})
@@ -100,6 +101,7 @@ func TestHello(t *testing.T) {}
 
 	// Move AND rename simultaneously
 	err := refactor.MoveFile(refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: srcFile,
 		DestDir:    destDir,
 		NewName:    "new_name.go",

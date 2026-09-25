@@ -58,6 +58,7 @@ func Check(r types.Role) {
 	// 4. Move errors.go to domain/types (whose package name is "types", causing an import collision with existing/types)
 	destDir := filepath.Join(tempDir, "domain", "types")
 	opts := refactor.MoveFileOptions{
+		Dir:        tempDir,
 		SourceFile: errorsFile,
 		DestDir:    destDir,
 	}
