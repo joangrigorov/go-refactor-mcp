@@ -56,6 +56,7 @@ func Authenticate(t token.TokenClaims) string {
 	opts := refactor.MoveDirOptions{
 		SourceDir: filepath.Join(authDir, "token"),
 		DestDir:   destDir,
+		Dir:       tempDir,
 	}
 
 	if err := refactor.MoveDirectory(opts); err != nil {

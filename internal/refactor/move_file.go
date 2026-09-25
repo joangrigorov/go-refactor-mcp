@@ -20,6 +20,7 @@ type MoveFileOptions struct {
 	DestDir    string
 	NewName    string
 	BuildTags  string
+	Dir        string // Optional root directory of the module or workspace
 }
 
 // MoveFile moves SourceFile (and associated _test.go file if present) to DestDir and/or renames it to NewName.
@@ -72,7 +73,12 @@ func MoveFile(opts MoveFileOptions) error {
 		return fmt.Errorf("destination file path is identical to source file path: %s", absSource)
 	}
 
-	ws, err := FindWorkspace(sourceDir)
+	workspaceStart := sourceDir
+	if strings.TrimSpace(opts.Dir) != "" {
+		workspaceStart = strings.TrimSpace(opts.Dir)
+	}
+
+	ws, err := FindWorkspace(workspaceStart)
 	if err != nil {
 		return fmt.Errorf("failed finding workspace: %w", err)
 	}
