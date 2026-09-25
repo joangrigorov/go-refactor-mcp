@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.4.1...v0.5.0) (2026-09-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **server:** directory is now required for move_file and move_directory tools, and Dir is required in MoveFileOptions and MoveDirOptions.
+
+### Features
+
+* **server:** require directory parameter and enforce workspace ceiling safeguards ([#30](https://github.com/joangrigorov/go-refactor-mcp/issues/30)) ([c73a018](https://github.com/joangrigorov/go-refactor-mcp/commit/c73a0186c55575d1471f6c0709be04e63277f290))
+
+
+### Bug Fixes
+
+* **deps:** bump github.com/mark3labs/mcp-go in the go-dependencies group ([#27](https://github.com/joangrigorov/go-refactor-mcp/issues/27)) ([3929de5](https://github.com/joangrigorov/go-refactor-mcp/commit/3929de599e7661412ab72ad74f772f35bf7dc2ab))
+* **workspace:** prevent climbing out of standalone modules and across git boundaries ([#28](https://github.com/joangrigorov/go-refactor-mcp/issues/28)) ([eb15b80](https://github.com/joangrigorov/go-refactor-mcp/commit/eb15b8052416dd3da97174f0789a26a454bec75e))
+
 ## [0.4.1](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.4.0...v0.4.1) (2026-09-15)
 
 
