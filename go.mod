@@ -3,8 +3,8 @@ module github.com/joangrigorov/go-refactor-mcp
 go 1.26.0
 
 require (
-	github.com/mark3labs/mcp-go v1.3.0
-	golang.org/x/mod v0.42.0
+	github.com/mark3labs/mcp-go v1.5.0
+	golang.org/x/mod v0.43.0
 	golang.org/x/tools v0.52.0
 )
 
