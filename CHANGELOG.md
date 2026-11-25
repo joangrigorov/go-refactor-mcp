@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.5.1](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.5.0...v0.5.1) (2026-11-25)
+
+
+### Bug Fixes
+
+* **deps:** bump the github-actions-dependencies group across 1 directory with 2 updates ([#37](https://github.com/joangrigorov/go-refactor-mcp/issues/37)) ([573af59](https://github.com/joangrigorov/go-refactor-mcp/commit/573af59eb555d64383005a1353636e89ea1ac335))
+* **deps:** bump the github-actions-dependencies group across 1 directory with 2 updates ([#39](https://github.com/joangrigorov/go-refactor-mcp/issues/39)) ([def9f85](https://github.com/joangrigorov/go-refactor-mcp/commit/def9f857f08037f0cb759af3c595acdd212f2644))
+* **deps:** bump the go-dependencies group across 1 directory with 3 updates ([7bf3b94](https://github.com/joangrigorov/go-refactor-mcp/commit/7bf3b9439dc0c988635d5c5d9c351d77f2224c38))
+* **deps:** bump the go-dependencies group across 1 directory with 3 updates ([#40](https://github.com/joangrigorov/go-refactor-mcp/issues/40)) ([d3ce6cd](https://github.com/joangrigorov/go-refactor-mcp/commit/d3ce6cd7bce9d3db372339d5fd8b8b72b75d3b53))
+* **deps:** bump the go-dependencies group with 2 updates ([a40fcca](https://github.com/joangrigorov/go-refactor-mcp/commit/a40fcca851be7d74f262c001e805e4e2b3fffde5))
+
 ## [0.5.0](https://github.com/joangrigorov/go-refactor-mcp/compare/v0.4.1...v0.5.0) (2026-09-25)
 
 
